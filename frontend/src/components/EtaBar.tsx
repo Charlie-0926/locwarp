@@ -13,7 +13,7 @@ interface EtaBarProps {
   runtimes?: RuntimesMap;
 }
 
-const ACTIVE_STATES = ['navigating', 'looping', 'multi_stop', 'random_walk', 'spiral'];
+const ACTIVE_STATES = ['navigating', 'looping', 'multi_stop', 'random_walk', 'spiral', 'flower'];
 
 function formatDistance(meters: number): string {
   if (meters >= 1000) {

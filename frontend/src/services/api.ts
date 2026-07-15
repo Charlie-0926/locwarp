@@ -190,6 +190,27 @@ export const startLoop = (waypoints: { lat: number; lng: number }[], mode: strin
   request<any>('POST', '/api/location/loop', { waypoints, mode, ...sp(speed), ...pp(pause), ...sl(straightLine), ...re(routeEngine), ...ud(udid), ...(lapCount != null && lapCount > 0 ? { lap_count: lapCount } : {}), ...jm(jump), ...(startIndex != null && startIndex > 0 ? { start_index: startIndex } : {}) })
 export const multiStop = (waypoints: { lat: number; lng: number }[], mode: string, stop_duration: number, loop: boolean, speed?: SpeedOpts, pause?: PauseOpts, udid?: string, straightLine?: boolean, routeEngine?: string, jump?: JumpOpts, startIndex?: number) =>
   request<any>('POST', '/api/location/multistop', { waypoints, mode, stop_duration, loop, ...sp(speed), ...pp(pause), ...sl(straightLine), ...re(routeEngine), ...ud(udid), ...jm(jump), ...(startIndex != null && startIndex > 0 ? { start_index: startIndex } : {}) })
+export interface FlowerOpts {
+  radius_m?: number
+  segments?: number
+  circles?: number
+  rounds?: number
+  pre_wait?: number
+  post_wait?: number
+  teleport?: boolean
+}
+export const flower = (waypoints: { lat: number; lng: number }[], mode: string, opts: FlowerOpts, speed?: SpeedOpts, udid?: string, straightLine?: boolean, routeEngine?: string) =>
+  request<any>('POST', '/api/location/flower', {
+    waypoints, mode,
+    radius_m: opts.radius_m ?? 30,
+    segments: opts.segments ?? 8,
+    circles: opts.circles ?? 1,
+    rounds: opts.rounds ?? 1,
+    pre_wait: opts.pre_wait ?? 3,
+    post_wait: opts.post_wait ?? 3,
+    teleport: opts.teleport ?? false,
+    ...sp(speed), ...sl(straightLine), ...re(routeEngine), ...ud(udid),
+  })
 export const randomWalk = (center: { lat: number; lng: number }, radius_m: number, mode: string, speed?: SpeedOpts, pause?: PauseOpts, udid?: string, seed?: number | null, straightLine?: boolean, routeEngine?: string, centerMode?: string, forward?: { enabled: boolean; turnDeg: number }) =>
   request<any>('POST', '/api/location/randomwalk', { center, radius_m, mode, ...sp(speed), ...pp(pause), ...sl(straightLine), ...re(routeEngine), ...ud(udid), ...(seed != null ? { seed } : {}), ...(centerMode ? { center_mode: centerMode } : {}), ...(forward?.enabled ? { forward_enabled: true, forward_turn_deg: forward.turnDeg } : {}) })
 export const joystickStart = (mode: string, udid?: string) =>
@@ -305,6 +326,10 @@ export const reorderBookmarkCategories = (categoryIds: string[]) =>
   request<{ reordered: number }>('POST', '/api/bookmarks/categories/reorder', { category_ids: categoryIds })
 
 export const bookmarksExportUrl = () => `${API}/api/bookmarks/export`
+export const bookmarkGpxExportUrl = (id: string) => `${API}/api/bookmarks/gpx/export/${id}`
+export const bookmarkCategoryGpxExportUrl = (categoryId: string) => `${API}/api/bookmarks/gpx/export/category/${categoryId}`
+export const bookmarkCategoriesGpxZipUrl = (categoryIds: string[]) =>
+  `${API}/api/bookmarks/gpx/categories/export.zip?ids=${encodeURIComponent(categoryIds.join(','))}`
 
 // Recent places: last 20 flights.
 // kind distinguishes the entry point AND the action, so the UI can show
@@ -317,6 +342,16 @@ export const pushRecent = (entry: { lat: number; lng: number; kind: RecentKind; 
   request<RecentEntry>('POST', '/api/recent', entry)
 export const clearRecent = () => request<{ status: string }>('DELETE', '/api/recent')
 export const importBookmarks = (data: any) => request<{ imported: number }>('POST', '/api/bookmarks/import', data)
+export async function importBookmarksGpx(file: File): Promise<{ imported: number }> {
+  const form = new FormData()
+  form.append('file', file)
+  const res = await fetch(`${API}/api/bookmarks/gpx/import`, { method: 'POST', body: form })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(formatError(err.detail, res.statusText))
+  }
+  return res.json()
+}
 
 export const getInitialPosition = () =>
   request<{ position: { lat: number; lng: number } | null }>('GET', '/api/location/settings/initial-position')

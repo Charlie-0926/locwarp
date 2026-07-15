@@ -9,10 +9,10 @@ export enum SimMode {
   Navigate = 'navigate',
   Loop = 'loop',
   Joystick = 'joystick',
-  MultiStop = 'multistop',
   RandomWalk = 'randomwalk',
   GoldDitto = 'goldditto',
   Spiral = 'spiral',
+  Flower = 'flower',
 }
 
 export enum MoveMode {
@@ -258,10 +258,8 @@ export function useSimulation(subscribe?: WsSubscribe, primaryUdid?: string | nu
   const savePause = (key: string, v: PauseSetting) => {
     try { localStorage.setItem(key, JSON.stringify(v)) } catch { /* ignore */ }
   }
-  const [pauseMultiStop, setPauseMultiStopRaw] = useState<PauseSetting>(() => loadPause('locwarp.pause.multi_stop'))
   const [pauseLoop, setPauseLoopRaw] = useState<PauseSetting>(() => loadPause('locwarp.pause.loop'))
   const [pauseRandomWalk, setPauseRandomWalkRaw] = useState<PauseSetting>(() => loadPause('locwarp.pause.random_walk'))
-  const setPauseMultiStop = (v: PauseSetting) => { setPauseMultiStopRaw(v); savePause('locwarp.pause.multi_stop', v) }
   const setPauseLoop = (v: PauseSetting) => { setPauseLoopRaw(v); savePause('locwarp.pause.loop', v) }
   const setPauseRandomWalk = (v: PauseSetting) => { setPauseRandomWalkRaw(v); savePause('locwarp.pause.random_walk', v) }
   const [error, setError] = useState<string | null>(null)
@@ -299,6 +297,64 @@ export function useSimulation(subscribe?: WsSubscribe, primaryUdid?: string | nu
     try {
       localStorage.setItem('locwarp.loop.lap_count', v == null ? 'inf' : String(v))
     } catch { /* ignore quota errors */ }
+  }, [])
+
+  // 種花模式 settings — all persisted so they survive a restart. Each
+  // flower (waypoint) is circled at `flowerRadius` metres using
+  // `flowerSegments` vertices, `flowerCircles` laps; the whole list runs
+  // `flowerRounds` times. The device waits `flowerPreWait` before moving
+  // to a flower and `flowerPostWait` after arriving. `flowerTeleport`
+  // toggles teleport-between-flowers vs walking the route.
+  const loadNum = (key: string, def: number, min: number): number => {
+    try {
+      const n = parseFloat(localStorage.getItem(key) || '')
+      if (Number.isFinite(n) && n >= min) return n
+    } catch { /* ignore */ }
+    return def
+  }
+  const [flowerRadius, setFlowerRadiusRaw] = useState<number>(() => loadNum('locwarp.flower.radius', 30, 1))
+  const setFlowerRadius = useCallback((v: number) => {
+    const c = Number.isFinite(v) && v >= 1 ? v : 30
+    setFlowerRadiusRaw(c)
+    try { localStorage.setItem('locwarp.flower.radius', String(c)) } catch { /* ignore */ }
+  }, [])
+  const [flowerSegments, setFlowerSegmentsRaw] = useState<number>(() => loadNum('locwarp.flower.segments', 8, 3))
+  const setFlowerSegments = useCallback((v: number) => {
+    const c = Number.isFinite(v) ? Math.min(20, Math.max(3, Math.round(v))) : 8
+    setFlowerSegmentsRaw(c)
+    try { localStorage.setItem('locwarp.flower.segments', String(c)) } catch { /* ignore */ }
+  }, [])
+  const [flowerCircles, setFlowerCirclesRaw] = useState<number>(() => loadNum('locwarp.flower.circles', 1, 0.5))
+  const setFlowerCircles = useCallback((v: number) => {
+    // Allow half-laps: snap to the nearest 0.5, floor 0.5.
+    const c = Number.isFinite(v) && v >= 0.5 ? Math.round(v * 2) / 2 : 0.5
+    setFlowerCirclesRaw(c)
+    try { localStorage.setItem('locwarp.flower.circles', String(c)) } catch { /* ignore */ }
+  }, [])
+  const [flowerRounds, setFlowerRoundsRaw] = useState<number>(() => loadNum('locwarp.flower.rounds', 1, 1))
+  const setFlowerRounds = useCallback((v: number) => {
+    const c = Number.isFinite(v) && v >= 1 ? Math.round(v) : 1
+    setFlowerRoundsRaw(c)
+    try { localStorage.setItem('locwarp.flower.rounds', String(c)) } catch { /* ignore */ }
+  }, [])
+  const [flowerPreWait, setFlowerPreWaitRaw] = useState<number>(() => loadNum('locwarp.flower.pre_wait', 3, 0))
+  const setFlowerPreWait = useCallback((v: number) => {
+    const c = Number.isFinite(v) && v >= 0 ? v : 3
+    setFlowerPreWaitRaw(c)
+    try { localStorage.setItem('locwarp.flower.pre_wait', String(c)) } catch { /* ignore */ }
+  }, [])
+  const [flowerPostWait, setFlowerPostWaitRaw] = useState<number>(() => loadNum('locwarp.flower.post_wait', 3, 0))
+  const setFlowerPostWait = useCallback((v: number) => {
+    const c = Number.isFinite(v) && v >= 0 ? v : 3
+    setFlowerPostWaitRaw(c)
+    try { localStorage.setItem('locwarp.flower.post_wait', String(c)) } catch { /* ignore */ }
+  }, [])
+  const [flowerTeleport, setFlowerTeleportRaw] = useState<boolean>(() => {
+    try { return localStorage.getItem('locwarp.flower.teleport') === '1' } catch { return false }
+  })
+  const setFlowerTeleport = useCallback((v: boolean) => {
+    setFlowerTeleportRaw(v)
+    try { localStorage.setItem('locwarp.flower.teleport', v ? '1' : '0') } catch { /* ignore */ }
   }, [])
 
   // Jump mode (point-to-point teleport with configurable pre / post
@@ -497,6 +553,7 @@ export function useSimulation(subscribe?: WsSubscribe, primaryUdid?: string | nu
       case 'simulation_complete':
       case 'navigation_complete':
       case 'multi_stop_complete':
+      case 'flower_complete':
       case 'loop_complete': {
         setStatus((prev) => ({ ...prev, running: false, paused: false }))
         setProgress(1)
@@ -737,7 +794,7 @@ export function useSimulation(subscribe?: WsSubscribe, primaryUdid?: string | nu
         throw err
       }
     },
-    [moveMode, customSpeedKmh, speedMinKmh, speedMaxKmh, pauseMultiStop, pauseLoop, pauseRandomWalk, straightLine, routeEngine],
+    [moveMode, customSpeedKmh, speedMinKmh, speedMaxKmh, pauseLoop, pauseRandomWalk, straightLine, routeEngine],
   )
 
   const startLoop = useCallback(
@@ -760,7 +817,7 @@ export function useSimulation(subscribe?: WsSubscribe, primaryUdid?: string | nu
         throw err
       }
     },
-    [moveMode, customSpeedKmh, speedMinKmh, speedMaxKmh, pauseMultiStop, pauseLoop, pauseRandomWalk, straightLine, loopLapCount, routeEngine, jumpMode, jumpPreDelay, jumpPostDelay, jumpRandomWalk, jumpRandomWalkRadius],
+    [moveMode, customSpeedKmh, speedMinKmh, speedMaxKmh, pauseLoop, pauseRandomWalk, straightLine, loopLapCount, routeEngine, jumpMode, jumpPreDelay, jumpPostDelay, jumpRandomWalk, jumpRandomWalkRadius],
   )
 
   const multiStop = useCallback(
@@ -781,7 +838,31 @@ export function useSimulation(subscribe?: WsSubscribe, primaryUdid?: string | nu
         throw err
       }
     },
-    [moveMode, customSpeedKmh, speedMinKmh, speedMaxKmh, pauseMultiStop, pauseLoop, pauseRandomWalk, straightLine, routeEngine, jumpMode, jumpPreDelay, jumpPostDelay, jumpRandomWalk, jumpRandomWalkRadius],
+    [moveMode, customSpeedKmh, speedMinKmh, speedMaxKmh, pauseLoop, pauseRandomWalk, straightLine, routeEngine, jumpMode, jumpPreDelay, jumpPostDelay, jumpRandomWalk, jumpRandomWalkRadius],
+  )
+
+  const flower = useCallback(
+    async (wps: LatLng[]) => {
+      setError(null)
+      try {
+        _setMode(SimMode.Flower)
+        setProgress(0)
+        setLapProgress(null)
+        const res = await api.flower(wps, moveMode, {
+          radius_m: flowerRadius, segments: flowerSegments,
+          circles: flowerCircles, rounds: flowerRounds,
+          pre_wait: flowerPreWait, post_wait: flowerPostWait,
+          teleport: flowerTeleport,
+        }, { speed_kmh: customSpeedKmh, speed_min_kmh: speedMinKmh, speed_max_kmh: speedMaxKmh }, undefined, straightLine, routeEngine)
+        setStatus((prev) => ({ ...prev, running: true, paused: false }))
+        setEffectiveSpeed({ kmh: customSpeedKmh ?? MODE_DEFAULT_KMH[moveMode], min: speedMinKmh, max: speedMaxKmh })
+        return res
+      } catch (err: any) {
+        setError(err.message)
+        throw err
+      }
+    },
+    [moveMode, customSpeedKmh, speedMinKmh, speedMaxKmh, straightLine, routeEngine, flowerRadius, flowerSegments, flowerCircles, flowerRounds, flowerPreWait, flowerPostWait, flowerTeleport],
   )
 
   const randomWalk = useCallback(
@@ -799,7 +880,7 @@ export function useSimulation(subscribe?: WsSubscribe, primaryUdid?: string | nu
         throw err
       }
     },
-    [moveMode, customSpeedKmh, speedMinKmh, speedMaxKmh, pauseMultiStop, pauseLoop, pauseRandomWalk, straightLine, routeEngine, randomWalkCenterMode, forwardWalk],
+    [moveMode, customSpeedKmh, speedMinKmh, speedMaxKmh, pauseLoop, pauseRandomWalk, straightLine, routeEngine, randomWalkCenterMode, forwardWalk],
   )
 
   const startSpiral = useCallback(
@@ -1013,6 +1094,16 @@ export function useSimulation(subscribe?: WsSubscribe, primaryUdid?: string | nu
     // Single-pass path of the merged 路徑 mode — use the shared pauseLoop setting.
     return fanout(udids, 'multistop', (u) => api.multiStop(wps, moveMode, dur, loop, { speed_kmh: customSpeedKmh, speed_min_kmh: speedMinKmh, speed_max_kmh: speedMaxKmh }, { pause_enabled: pauseLoop.enabled, pause_min: pauseLoop.min, pause_max: pauseLoop.max }, u, straightLine, routeEngine, { jump_mode: jumpMode, jump_pre_delay: jumpPreDelay, jump_post_delay: jumpPostDelay, jump_random_walk: jumpRandomWalk, jump_random_walk_radius: jumpRandomWalkRadius }, startIndex))
   }, [fanout, preSyncStart, moveMode, customSpeedKmh, speedMinKmh, speedMaxKmh, pauseLoop, straightLine, routeEngine, jumpMode, jumpPreDelay, jumpPostDelay, jumpRandomWalk, jumpRandomWalkRadius])
+  const flowerAll = useCallback(async (udids: string[], wps: LatLng[]) => {
+    await preSyncStart(udids)
+    setLapProgress(null)
+    return fanout(udids, 'flower', (u) => api.flower(wps, moveMode, {
+      radius_m: flowerRadius, segments: flowerSegments,
+      circles: flowerCircles, rounds: flowerRounds,
+      pre_wait: flowerPreWait, post_wait: flowerPostWait,
+      teleport: flowerTeleport,
+    }, { speed_kmh: customSpeedKmh, speed_min_kmh: speedMinKmh, speed_max_kmh: speedMaxKmh }, u, straightLine, routeEngine))
+  }, [fanout, preSyncStart, moveMode, customSpeedKmh, speedMinKmh, speedMaxKmh, straightLine, routeEngine, flowerRadius, flowerSegments, flowerCircles, flowerRounds, flowerPreWait, flowerPostWait, flowerTeleport])
   const randomWalkAll = useCallback(async (udids: string[], center: LatLng, r: number) => {
     await preSyncStart(udids)
     // Shared seed → both engines produce identical destination sequences.
@@ -1089,6 +1180,7 @@ export function useSimulation(subscribe?: WsSubscribe, primaryUdid?: string | nu
     navigateAll,
     startLoopAll,
     multiStopAll,
+    flowerAll,
     randomWalkAll,
     startSpiralAll,
     applySpeedAll,
@@ -1132,8 +1224,6 @@ export function useSimulation(subscribe?: WsSubscribe, primaryUdid?: string | nu
     randomWalkCenter,
     routeEngine,
     setRouteEngine,
-    pauseMultiStop,
-    setPauseMultiStop,
     pauseLoop,
     setPauseLoop,
     pauseRandomWalk,
@@ -1164,8 +1254,23 @@ export function useSimulation(subscribe?: WsSubscribe, primaryUdid?: string | nu
     navigate,
     startLoop,
     multiStop,
+    flower,
     randomWalk,
     startSpiral,
+    flowerRadius,
+    setFlowerRadius,
+    flowerSegments,
+    setFlowerSegments,
+    flowerCircles,
+    setFlowerCircles,
+    flowerRounds,
+    setFlowerRounds,
+    flowerPreWait,
+    setFlowerPreWait,
+    flowerPostWait,
+    setFlowerPostWait,
+    flowerTeleport,
+    setFlowerTeleport,
     joystickStart,
     joystickStop,
     pause,

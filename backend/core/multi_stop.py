@@ -343,6 +343,13 @@ async def jump_wait(
     emitted = False
     elapsed = 0.0
     step = 1.0
+    # Keep the WiFi tunnel fed during the dwell. The engine pushes nothing
+    # while it just sleeps here, so on a screen-off iPhone the socket can go
+    # quiet long enough for iOS to reap it. Re-push the current (frozen)
+    # coordinate every ~1s, mirroring the idle keepalive — it both keeps the
+    # fake location pinned and gives the tunnel traffic to stay alive.
+    since_push = 0.0
+    KEEPALIVE_EVERY = 1.0
     try:
         while True:
             if engine._stop_event.is_set():
@@ -417,6 +424,18 @@ async def jump_wait(
                     "eta_arrival": "",
                     "is_paused": False,
                 })
+            else:
+                since_push += slice_s
+                if since_push >= KEEPALIVE_EVERY:
+                    since_push = 0.0
+                    pos = engine.current_position
+                    if pos is not None:
+                        try:
+                            await engine.location_service.set(pos.lat, pos.lng)
+                        except Exception:
+                            logger.debug(
+                                "jump_wait keepalive re-push failed", exc_info=True,
+                            )
     finally:
         if emitted:
             await engine._emit("pause_countdown_end", {"source": source})

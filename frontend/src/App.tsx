@@ -50,6 +50,39 @@ const SPEED_MAP: Record<MoveMode, number> = {
   driving: 60,
 }
 
+// Number input that lets the user freely clear and retype the field (so a
+// multi-digit value like 15 is easy to enter). The draft string is held
+// locally while editing; the value is parsed and clamped via `set` only on
+// blur / Enter, so per-keystroke clamping never fights the typing.
+const NumberField: React.FC<{
+  value: number
+  set: (n: number) => void
+  min: number
+  max?: number
+  step: number
+}> = ({ value, set, min, max, step }) => {
+  const [draft, setDraft] = useState<string | null>(null)
+  const commit = () => {
+    const n = parseFloat(draft ?? '')
+    if (Number.isFinite(n)) set(n)
+    setDraft(null)
+  }
+  return (
+    <input
+      type="number"
+      className="lw-input"
+      min={min}
+      max={max}
+      step={step}
+      value={draft ?? String(value)}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+      style={{ width: 64 }}
+    />
+  )
+}
+
 const App: React.FC = () => {
   const t = useT()
   const ws = useWebSocket()
@@ -61,13 +94,13 @@ const App: React.FC = () => {
   const sim = useSimulation(ws.subscribe, device.primaryDevice?.udid)
   const joystick = useJoystick(ws.sendMessage, sim.mode === SimMode.Joystick)
   const bm = useBookmarks()
+  // Stable bookmark-pin array for the map. Re-mapping inline in JSX builds a
+  // fresh array every render, which churns MapView's clustering effect (it
+  // rebuilds the whole supercluster index on each new reference). Memoize so
+  // the index only rebuilds when the bookmarks themselves change.
   const bookmarkPins = useMemo(
     () => bm.bookmarks.map((b: any) => ({
-      id: b.id,
-      name: b.name,
-      lat: b.lat,
-      lng: b.lng,
-      country_code: b.country_code || '',
+      id: b.id, name: b.name, lat: b.lat, lng: b.lng, country_code: b.country_code || '',
     })),
     [bm.bookmarks],
   )
@@ -562,7 +595,7 @@ const App: React.FC = () => {
       // inserted in a past / current leg the new wp is recorded for
       // the route list but the iPhone keeps walking forward without
       // backtracking. See SimulationEngine.live_insert_waypoint.
-      const isRouteMode = sim.mode === SimMode.Loop || sim.mode === SimMode.MultiStop
+      const isRouteMode = sim.mode === SimMode.Loop
       if (isRouteMode && sim.status?.running) {
         const udids = device.connectedDevices.map((d) => d.udid)
         if (udids.length > 0) {
@@ -580,7 +613,7 @@ const App: React.FC = () => {
     // waypoint-based mode, append to the waypoint list. Otherwise a map
     // click is a no-op (teleport / navigate live on right-click menu).
     if (!clickToAddWaypoint) return
-    if (sim.mode !== SimMode.Loop && sim.mode !== SimMode.MultiStop) return
+    if (sim.mode !== SimMode.Loop && sim.mode !== SimMode.Flower) return
     sim.setWaypoints((prev: any[]) => {
       if (prev.length === 0 && sim.currentPosition) {
         return [
@@ -1004,6 +1037,29 @@ const App: React.FC = () => {
     }
   }, [sim, device, showToast, t, routeStartIndex])
 
+  // 種花模式 start: circle every placed waypoint. Independent from the
+  // 多點路徑 (Loop) start path — it has its own backend handler / settings.
+  const handleStartFlower = useCallback(async () => {
+    const route = sim.waypoints
+    if (route.length < 1) {
+      showToast(t('toast.no_waypoints'))
+      return
+    }
+    // Walking to the first flower needs a current position; teleport mode
+    // doesn't (it jumps straight onto each flower).
+    if (!sim.flowerTeleport && !sim.currentPosition) {
+      showToast(t('toast.no_position_random'))
+      return
+    }
+    const udids = device.connectedDevices.map((d) => d.udid)
+    if (udids.length >= 2) {
+      const outcome = await sim.flowerAll(udids, route)
+      showToast(toastForFanout(t, t('mode.flower'), outcome, device.connectedDevices))
+    } else {
+      sim.flower(route)
+    }
+  }, [sim, device, showToast, t])
+
   // -- ControlPanel handlers --
   const handleStart = useCallback(async () => {
     const udids = device.connectedDevices.map((d) => d.udid)
@@ -1042,12 +1098,14 @@ const App: React.FC = () => {
       } else {
         sim.startSpiral(sim.currentPosition, spiralRadius, spiralSpacing)
       }
-    } else if (sim.mode === SimMode.Loop || sim.mode === SimMode.MultiStop) {
+    } else if (sim.mode === SimMode.Loop) {
       handleStartWaypointRoute()
+    } else if (sim.mode === SimMode.Flower) {
+      handleStartFlower()
     } else if (sim.mode === SimMode.GoldDitto) {
       handleGoldDittoStart()
     }
-  }, [sim, device, randomWalkRadius, spiralRadius, spiralSpacing, handleStartWaypointRoute, handleGoldDittoStart, showToast, t])
+  }, [sim, device, randomWalkRadius, spiralRadius, spiralSpacing, handleStartWaypointRoute, handleStartFlower, handleGoldDittoStart, showToast, t])
 
   const handleStop = useCallback(async () => {
     // Stop the active movement only — keep the simulated location in place
@@ -1354,9 +1412,10 @@ const App: React.FC = () => {
 
   const handleBookmarkImport = useCallback(async (file: File) => {
     try {
-      const text = await file.text()
-      const data = JSON.parse(text)
-      const res = await api.importBookmarks(data)
+      const isGpx = file.name.toLowerCase().endsWith('.gpx')
+      const res = isGpx
+        ? await api.importBookmarksGpx(file)
+        : await api.importBookmarks(JSON.parse(await file.text()))
       await bm.refresh()
       showToast(t('bm.import_success', { n: res.imported }))
     } catch (err: any) {
@@ -1393,6 +1452,81 @@ const App: React.FC = () => {
   const destPos = sim.destination
     ? { lat: sim.destination.lat, lng: sim.destination.lng }
     : null
+
+  // 種花模式 map preview: one segmented polygon per waypoint, matching the
+  // backend's circle geometry (radius + segment count) so the user sees
+  // exactly what will be walked. Recomputed when the points / settings change.
+  const flowerPreview = useMemo(() => {
+    if (sim.mode !== SimMode.Flower) return []
+    const R = sim.flowerRadius
+    const N = Math.max(3, Math.round(sim.flowerSegments))
+    return sim.waypoints.map((wp: { lat: number; lng: number }) => {
+      const coslat = Math.max(Math.cos((wp.lat * Math.PI) / 180), 1e-6)
+      const pts: { lat: number; lng: number }[] = []
+      for (let k = 0; k < N; k++) {
+        const ang = (2 * Math.PI * k) / N
+        pts.push({
+          lat: wp.lat + (R * Math.cos(ang)) / 111320,
+          lng: wp.lng + (R * Math.sin(ang)) / (111320 * coslat),
+        })
+      }
+      return pts
+    })
+  }, [sim.mode, sim.waypoints, sim.flowerRadius, sim.flowerSegments])
+
+  // 種花模式 estimated total trip time (seconds): every pre/post wait + the
+  // walked approach between flowers (straight-line approximation; teleport
+  // approaches cost no travel time) + the walked circle length, across all
+  // rounds. Shown live in the panel so the user knows roughly how long the
+  // whole run will take, circling included.
+  const flowerEstimateSec = useMemo(() => {
+    if (sim.mode !== SimMode.Flower) return null
+    const wps = sim.waypoints
+    if (wps.length < 1) return null
+    const N = Math.max(3, Math.round(sim.flowerSegments))
+    const R = sim.flowerRadius
+    const circles = Math.max(0.5, Math.round(sim.flowerCircles * 2) / 2)
+    const rounds = Math.max(1, Math.round(sim.flowerRounds))
+    const preW = Math.max(0, sim.flowerPreWait)
+    const postW = Math.max(0, sim.flowerPostWait)
+    const defKmh = sim.moveMode === MoveMode.Running ? 19.8 : sim.moveMode === MoveMode.Driving ? 60 : 10.8
+    const kmh = (sim.speedMinKmh != null && sim.speedMaxKmh != null)
+      ? (sim.speedMinKmh + sim.speedMaxKmh) / 2
+      : (sim.customSpeedKmh ?? defKmh)
+    const speed = Math.max(kmh / 3.6, 0.1) // m/s
+    // Walked length per flower circle: out to the first vertex (radius) plus
+    // `circles` laps of the N-gon perimeter (matches backend _circle_path).
+    const chord = 2 * R * Math.sin(Math.PI / N)
+    const circleLen = R + circles * N * chord
+    const hav = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => {
+      const dlat = ((b.lat - a.lat) * Math.PI) / 180
+      const dlng = ((b.lng - a.lng) * Math.PI) / 180 * Math.cos(((a.lat + b.lat) / 2) * Math.PI / 180)
+      return 6371000 * Math.sqrt(dlat * dlat + dlng * dlng)
+    }
+    let total = 0
+    let prev: { lat: number; lng: number } | null = sim.currentPosition
+    for (let r = 0; r < rounds; r++) {
+      for (let i = 0; i < wps.length; i++) {
+        const wp = wps[i]
+        total += preW
+        if (!sim.flowerTeleport && prev) total += hav(prev, wp) / speed
+        total += postW
+        total += circleLen / speed
+        prev = wp
+      }
+    }
+    return total
+  }, [sim.mode, sim.waypoints, sim.flowerSegments, sim.flowerRadius, sim.flowerCircles, sim.flowerRounds, sim.flowerPreWait, sim.flowerPostWait, sim.flowerTeleport, sim.customSpeedKmh, sim.speedMinKmh, sim.speedMaxKmh, sim.moveMode, sim.currentPosition])
+
+  // Compact H:MM:SS / M:SS duration formatter for the flower estimate.
+  const fmtDuration = (sec: number) => {
+    const s = Math.max(0, Math.round(sec))
+    const h = Math.floor(s / 3600)
+    const m = Math.floor((s % 3600) / 60)
+    const ss = s % 60
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return h > 0 ? `${h}:${pad(m)}:${pad(ss)}` : `${m}:${pad(ss)}`
+  }
 
   // Mode default km/h, used only for ControlPanel's in-panel preset
   // preview and as a very last fallback in the status bar before any
@@ -1702,6 +1836,18 @@ const App: React.FC = () => {
             if (!cat) return
             bm.reorderBookmarksInCategory(cat.id, orderedIds)
           }}
+          onCategoryExportGpx={(name: string) => {
+            const cat = bm.categories.find((c) => c.name === name)
+            if (!cat) return
+            window.open(api.bookmarkCategoryGpxExportUrl(cat.id), '_blank')
+          }}
+          onCategoriesExportGpxZip={(names: string[]) => {
+            const ids = names
+              .map((n) => bm.categories.find((c) => c.name === n)?.id)
+              .filter((x): x is string => !!x)
+            if (ids.length === 0) return
+            window.open(api.bookmarkCategoriesGpxZipUrl(ids), '_blank')
+          }}
           bookmarkShowOnMap={showBookmarkPins}
           onBookmarkShowOnMapChange={setShowBookmarkPins}
           onBookmarkImport={handleBookmarkImport}
@@ -1784,64 +1930,7 @@ const App: React.FC = () => {
             }
           }}
           openLibraryToken={openLibraryToken}
-          modeExtraSection={sim.mode === SimMode.Loop ? (
-          <>
-          {(() => {
-            const lap = sim.loopLapCount
-            return (
-              <div className="section" style={{ margin: '0 0 8px 0' }}>
-                <div className="section-title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M17 1l4 4-4 4" />
-                    <path d="M3 11V9a4 4 0 014-4h14" />
-                    <path d="M7 23l-4-4 4-4" />
-                    <path d="M21 13v2a4 4 0 01-4 4H3" />
-                  </svg>
-                  {t('mode.loop')} / {t('loop.lap_count_label')}
-                </div>
-                <div className="section-content" style={{ display: 'grid', gap: 8 }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '64px 1fr', gap: 8, alignItems: 'center' }}>
-                    <input
-                      type="number"
-                      className="lw-input"
-                      min={0}
-                      placeholder={t('loop.lap_count_placeholder')}
-                      value={lap ?? ''}
-                      onChange={(e) => {
-                        const raw = e.target.value.trim()
-                        if (raw === '') { sim.setLoopLapCount(null); return }
-                        const n = parseInt(raw, 10)
-                        sim.setLoopLapCount(Number.isFinite(n) && n >= 0 ? n : 0)
-                      }}
-                      title={t('loop.lap_count_tooltip')}
-                    />
-                    <span style={{ opacity: 0.72, fontSize: 11 }}>
-                      {lap == null ? t('loop.lap_hint_infinite') : lap === 0 ? t('loop.lap_hint_single') : t('loop.lap_hint_n', { n: lap })}
-                    </span>
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 6 }}>
-                    <button className="action-btn" style={{ padding: '4px 6px', fontSize: 11 }} onClick={() => sim.setLoopLapCount(0)}>
-                      {t('loop.lap_hint_single')}
-                    </button>
-                    <button className="action-btn" style={{ padding: '4px 6px', fontSize: 11 }} onClick={() => sim.setLoopLapCount(3)}>
-                      {t('loop.lap_hint_n', { n: 3 })}
-                    </button>
-                    <button className="action-btn" style={{ padding: '4px 6px', fontSize: 11 }} onClick={() => sim.setLoopLapCount(null)}>
-                      {t('loop.lap_hint_infinite')}
-                    </button>
-                  </div>
-                  {sim.lapProgress && (
-                    <div style={{ opacity: 0.66, fontSize: 11 }}>
-                      {t('loop.lap_progress', {
-                        current: sim.lapProgress?.current ?? 0,
-                        total: sim.lapProgress.total ?? t('loop.lap_count_placeholder'),
-                      })}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )
-          })()}
+          modeExtraSection={(sim.mode === SimMode.Loop || sim.mode === SimMode.Flower) ? (
           <div className="section" style={{ margin: '0 0 8px 0' }}>
             <div className="section-title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -1849,16 +1938,115 @@ const App: React.FC = () => {
                 <line x1="12" y1="5" x2="12" y2="1" />
                 <line x1="12" y1="23" x2="12" y2="19" />
               </svg>
-              {t('panel.waypoints')} ({sim.waypoints.length})
+              {sim.mode === SimMode.Flower ? t('mode.flower') : t('panel.waypoints')} ({sim.waypoints.length})
               <span style={{ fontSize: 10, opacity: 0.5, marginLeft: 4 }}>{t('panel.waypoints_hint')}</span>
             </div>
             <div className="section-content">
-              <PauseControl
-                labelKey="pause.loop"
-                value={sim.pauseLoop}
-                onChange={sim.setPauseLoop}
-              />
+              {sim.mode === SimMode.Loop && (
+                <PauseControl
+                  labelKey="pause.loop"
+                  value={sim.pauseLoop}
+                  onChange={sim.setPauseLoop}
+                />
+              )}
+              {sim.mode === SimMode.Flower && (
+                <div style={{
+                  marginBottom: 8, padding: '8px 10px',
+                  background: 'rgba(108, 140, 255, 0.06)',
+                  border: '1px solid rgba(108, 140, 255, 0.18)',
+                  borderRadius: 6, fontSize: 11,
+                }}>
+                  <div style={{ opacity: 0.6, marginBottom: 8, lineHeight: 1.4 }}>{t('flower.hint')}</div>
+                  {/* teleport vs walk approach */}
+                  <label className="lw-checkbox" title={t('flower.teleport_hint')} style={{ marginBottom: 8 }}>
+                    <input
+                      type="checkbox"
+                      checked={sim.flowerTeleport}
+                      onChange={(e) => sim.setFlowerTeleport(e.target.checked)}
+                    />
+                    <span className="lw-checkbox-box"></span>
+                    <span className="lw-checkbox-label" style={{ lineHeight: 1.15 }}>{t('flower.teleport')}</span>
+                  </label>
+                  {([
+                    { label: t('flower.radius'), value: sim.flowerRadius, set: sim.setFlowerRadius, unit: 'm', min: 1, step: 5 },
+                    { label: t('flower.segments'), value: sim.flowerSegments, set: sim.setFlowerSegments, unit: t('flower.seg_unit'), min: 3, max: 20, step: 1 },
+                    { label: t('flower.circles'), value: sim.flowerCircles, set: sim.setFlowerCircles, unit: t('flower.circle_unit'), min: 0.5, step: 0.5 },
+                    { label: t('flower.rounds'), value: sim.flowerRounds, set: sim.setFlowerRounds, unit: t('flower.round_unit'), min: 1, step: 1 },
+                    { label: t('flower.pre_wait'), value: sim.flowerPreWait, set: sim.setFlowerPreWait, unit: t('flower.seconds'), min: 0, step: 1 },
+                    { label: t('flower.post_wait'), value: sim.flowerPostWait, set: sim.setFlowerPostWait, unit: t('flower.seconds'), min: 0, step: 1 },
+                  ] as const).map((row, ri) => (
+                    <div key={ri} style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6 }}>
+                      <span style={{ opacity: 0.75, flex: 1, whiteSpace: 'nowrap' }}>{row.label}</span>
+                      <NumberField
+                        value={row.value}
+                        set={row.set}
+                        min={row.min}
+                        max={(row as { max?: number }).max}
+                        step={row.step}
+                      />
+                      <span style={{ opacity: 0.5, width: 18, textAlign: 'left' }}>{row.unit}</span>
+                    </div>
+                  ))}
+                  <div style={{ opacity: 0.45, fontSize: 10, marginTop: 2 }}>{t('flower.segments_hint')}</div>
+                  {flowerEstimateSec != null && sim.waypoints.length > 0 && (
+                    <div style={{
+                      marginTop: 8, paddingTop: 8,
+                      borderTop: '1px solid rgba(255,255,255,0.08)',
+                      display: 'flex', alignItems: 'baseline', gap: 8,
+                    }}>
+                      <span style={{ opacity: 0.75 }}>{t('flower.est_total')}</span>
+                      <span style={{ fontWeight: 700, fontSize: 13, color: '#ffd266' }}>
+                        {fmtDuration(flowerEstimateSec)}
+                      </span>
+                      <span style={{ opacity: 0.4, fontSize: 9, marginLeft: 'auto', textAlign: 'right', lineHeight: 1.3 }}>
+                        {t('flower.est_hint')}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+              {sim.mode === SimMode.Loop && (() => {
+                const lap = sim.loopLapCount // null = 無限, 0 = 單程(原多點), N = N 圈
+                return (
+                <div style={{
+                  marginBottom: 6, fontSize: 11,
+                  display: 'flex', alignItems: 'center', gap: 8,
+                }}>
+                  <span style={{ opacity: 0.7, whiteSpace: 'nowrap' }}>{t('loop.lap_count_label')}</span>
+                  <input
+                    type="number"
+                    className="lw-input"
+                    min={0}
+                    placeholder={t('loop.lap_count_placeholder')}
+                    value={lap ?? ''}
+                    onChange={(e) => {
+                      const raw = e.target.value.trim()
+                      if (raw === '') { sim.setLoopLapCount(null); return }
+                      const n = parseInt(raw, 10)
+                      sim.setLoopLapCount(Number.isFinite(n) && n >= 0 ? n : 0)
+                    }}
+                    style={{ width: 64 }}
+                    title={t('loop.lap_count_tooltip')}
+                  />
+                  <span style={{ opacity: 0.5, fontSize: 10 }}>
+                    {lap == null ? t('loop.lap_hint_infinite') : lap === 0 ? t('loop.lap_hint_single') : t('loop.lap_hint_n', { n: lap })}
+                  </span>
+                  {sim.lapProgress && (
+                    <span style={{ opacity: 0.6, fontSize: 10, marginLeft: 'auto' }}>
+                      {t('loop.lap_progress', {
+                        current: sim.lapProgress.current,
+                        total: sim.lapProgress.total ?? '∞',
+                      })}
+                    </span>
+                  )}
+                </div>
+                )
+              })()}
               <div style={{ marginBottom: 6, fontSize: 11 }}>
+                {/* Random-waypoint generator (半徑 / 數量 / 隨機產生 / 全隨機) is
+                    for 多點路徑 only; 種花模式 places flowers by click / paste. */}
+                {sim.mode === SimMode.Loop && (
+                <>
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4 }}>
                   <span style={{ opacity: 0.7, width: 36 }}>{t('panel.waypoints_radius')}</span>
                   <input
@@ -1898,6 +2086,8 @@ const App: React.FC = () => {
                     title={t('panel.waypoints_gen_all_tooltip')}
                   >{t('panel.waypoints_generate_all')}</button>
                 </div>
+                </>
+                )}
                 {/* Bulk paste button — Variant D from the mockup: gradient pill
                     with an animated shimmer that hints "this is the eye-catcher". */}
                 <button
@@ -2105,7 +2295,6 @@ const App: React.FC = () => {
               )}
             </div>
           </div>
-          </>
           ) : null}
         />
         </div>
@@ -2279,10 +2468,11 @@ const App: React.FC = () => {
           destination={destPos}
           waypoints={sim.waypoints.map((w, i) => ({ ...w, index: i }))}
           routePath={sim.routePath}
+          flowerPreview={flowerPreview}
           randomWalkRadius={
             sim.mode === SimMode.RandomWalk ? randomWalkRadius :
             sim.mode === SimMode.Spiral ? spiralRadius :
-            (sim.mode === SimMode.Loop || sim.mode === SimMode.MultiStop) ? wpGenRadius :
+            sim.mode === SimMode.Loop ? wpGenRadius :
             null
           }
           randomWalkCenter={sim.mode === SimMode.RandomWalk ? sim.randomWalkCenter : null}
@@ -2298,7 +2488,7 @@ const App: React.FC = () => {
           onRemoveWaypoint={handleRemoveWaypoint}
           onInsertAfterWp={handleInsertAfterWp}
           insertAfterActive={insertAfterIndex !== null}
-          showWaypointOption={sim.mode === SimMode.Loop || sim.mode === SimMode.MultiStop || sim.mode === SimMode.Navigate}
+          showWaypointOption={sim.mode === SimMode.Loop || sim.mode === SimMode.Flower || sim.mode === SimMode.Navigate}
           deviceConnected={device.connectedDevice !== null}
           onShowToast={showToast}
           userAvatarHtml={avatarToHtml(userAvatar, customPng)}
@@ -2322,7 +2512,7 @@ const App: React.FC = () => {
           onStop={handleStop}
           onPause={handlePause}
           onResume={handleResume}
-          showBulkPasteOnMap={sim.mode === SimMode.Loop || sim.mode === SimMode.MultiStop}
+          showBulkPasteOnMap={sim.mode === SimMode.Loop || sim.mode === SimMode.Flower}
           onBulkPasteOpen={() => { setRoutePasteText(''); setRoutePasteOpen(true); }}
         />
         {avatarPickerOpen && (

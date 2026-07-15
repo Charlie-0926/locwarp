@@ -63,9 +63,12 @@ function stateToMode(state: string): SimMode | null {
   switch (state) {
     case 'navigating': return SimMode.Navigate;
     case 'looping': return SimMode.Loop;
-    case 'multi_stop': return SimMode.MultiStop;
+    // Single-pass (0 圈) runs on the multi_stop backend but is the merged
+    // 多點路徑 mode in the UI, so show the Loop label.
+    case 'multi_stop': return SimMode.Loop;
     case 'random_walk': return SimMode.RandomWalk;
     case 'spiral': return SimMode.Spiral;
+    case 'flower': return SimMode.Flower;
     case 'joystick': return SimMode.Joystick;
     case 'teleport':
     case 'idle':
@@ -78,11 +81,11 @@ const modeLabelKeys: Record<SimMode, StringKey> = {
   [SimMode.Teleport]: 'mode.teleport',
   [SimMode.Navigate]: 'mode.navigate',
   [SimMode.Loop]: 'mode.loop',
-  [SimMode.MultiStop]: 'mode.multi_stop',
   [SimMode.RandomWalk]: 'mode.random_walk',
   [SimMode.Joystick]: 'mode.joystick',
   [SimMode.GoldDitto]: 'mode.goldditto',
   [SimMode.Spiral]: 'mode.spiral',
+  [SimMode.Flower]: 'mode.flower',
 };
 
 function formatCooldown(seconds: number): string {

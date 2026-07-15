@@ -44,6 +44,10 @@ interface MapViewProps {
   destination: Position | null;
   waypoints: Waypoint[];
   routePath: Position[];
+  // 種花模式 preview: one segmented polygon (the circle the avatar will walk)
+  // per waypoint, drawn so the user sees the configured radius + segment
+  // count before / while running.
+  flowerPreview?: Position[][];
   randomWalkRadius: number | null;
   // Fixed sampling centre of an active random walk (broadcast by the backend
   // on start). When set and mode is "fixed", the radius circle pins here.
@@ -243,6 +247,7 @@ const MapView: React.FC<MapViewProps> = ({
   destination,
   waypoints,
   routePath,
+  flowerPreview,
   randomWalkRadius,
   randomWalkCenter,
   randomWalkCenterMode = 'fixed',
@@ -344,6 +349,9 @@ const MapView: React.FC<MapViewProps> = ({
   // prop changes mid-session take effect.
   const onShowToastRef = useRef(onShowToast);
   useEffect(() => { onShowToastRef.current = onShowToast; }, [onShowToast]);
+  // Bookmark-pin teleport handler routed through a ref so the clustering
+  // effect doesn't rebuild the (potentially 50k-point) supercluster index
+  // just because the parent passed a new onTeleport closure.
   const onTeleportRef = useRef(onTeleport);
   useEffect(() => { onTeleportRef.current = onTeleport; }, [onTeleport]);
   // Waypoint marker click handlers — kept in refs so the per-marker click
@@ -1165,9 +1173,16 @@ const MapView: React.FC<MapViewProps> = ({
     bookmarkMarkersRef.current = [];
     if (!showBookmarkPins || !bookmarkPins || bookmarkPins.length === 0) return;
 
+    // Scalable clustering via supercluster (O(n log n) index) + viewport
+    // culling. The old hand-rolled clusterer was O(n²) and built a DOM marker
+    // for every bookmark regardless of what was on screen — fine for a few
+    // hundred, but it freezes the UI thread at tens of thousands of points.
+    // Now we index once, then on every pan/zoom render ONLY the clusters /
+    // leaves that fall inside the current viewport, so the map never holds
+    // more than a few dozen markers at a time no matter how many are saved.
     const index = new Supercluster({ radius: 60, maxZoom: 18, minPoints: 2 });
     index.load(
-      bookmarkPins.map((bm, i) => ({
+      bookmarkPins!.map((bm, i) => ({
         type: 'Feature' as const,
         properties: { idx: i },
         geometry: { type: 'Point' as const, coordinates: [bm.lng, bm.lat] },
@@ -1189,7 +1204,7 @@ const MapView: React.FC<MapViewProps> = ({
         const isCluster = !!f.properties.cluster;
 
         if (!isCluster) {
-          const bm = bookmarkPins[f.properties.idx as number];
+          const bm = bookmarkPins![f.properties.idx as number];
           const flagHtml = bm.country_code
             ? `<img src="https://flagcdn.com/w20/${bm.country_code}.png" style="width:18px;height:12px;border-radius:2px;flex-shrink:0;display:inline-block;vertical-align:middle;" alt="" />`
             : '';
@@ -1246,7 +1261,7 @@ const MapView: React.FC<MapViewProps> = ({
           bookmarkMarkersRef.current.push(marker);
         } else {
           // Design 4 — Polaroid stack cluster. Three overlapping mini cards
-          // with rotation, top one shows the count. Click = open list popup.
+          // with rotation, top one shows the count.
           const count = f.properties.point_count as number;
           const countLabel = f.properties.point_count_abbreviated as string;
           const clusterId = f.properties.cluster_id as number;
@@ -1279,14 +1294,14 @@ const MapView: React.FC<MapViewProps> = ({
             // Above blue person so the cluster card is always clickable.
             zIndexOffset: 2000,
           });
-          // Click on a cluster opens a popup with a clickable list so the
-          // user can pick which specific bookmark to teleport to. Solves the
-          // 'zoom out to see whole country, markers overlap into one dot'
-          // usability issue.
+
+          // Small clusters (<= 12) open a clickable list so the user can pick
+          // the exact bookmark — same UX as before. Bigger clusters just zoom
+          // in to expand (a 5000-row popup is useless and slow to build).
           if (count <= 12) {
             const leaves = index.getLeaves(clusterId, count) as any[];
             const listHtml = leaves.map((leaf) => {
-              const bm = bookmarkPins[leaf.properties.idx as number];
+              const bm = bookmarkPins![leaf.properties.idx as number];
               const flag = bm.country_code
                 ? `<img src="https://flagcdn.com/w20/${bm.country_code}.png" style="width:14px;height:10px;border-radius:1px;vertical-align:middle;margin-right:6px;" />`
                 : '';
@@ -1312,16 +1327,17 @@ const MapView: React.FC<MapViewProps> = ({
             marker.on('popupopen', () => {
               document.querySelectorAll('.bm-cluster-row').forEach((el) => {
                 el.addEventListener('click', () => {
-                  const lat = parseFloat((el as HTMLElement).dataset.lat || '');
-                  const lng = parseFloat((el as HTMLElement).dataset.lng || '');
-                  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+                  const lat2 = parseFloat((el as HTMLElement).dataset.lat || '');
+                  const lng2 = parseFloat((el as HTMLElement).dataset.lng || '');
+                  if (Number.isFinite(lat2) && Number.isFinite(lng2)) {
                     map.closePopup();
-                    onTeleportRef.current(lat, lng);
+                    onTeleportRef.current(lat2, lng2);
                   }
                 });
               });
             });
           } else {
+            // Zoom to the level where this cluster breaks apart, centered on it.
             marker.on('click', () => {
               const target = Math.min(index.getClusterExpansionZoom(clusterId), 18);
               map.setView([lat, lng], target, { animate: true });
@@ -1334,15 +1350,12 @@ const MapView: React.FC<MapViewProps> = ({
     };
     render();
 
-    // Rebuild clusters when the zoom level changes — what's 'overlapping'
-    // at world-scale is not overlapping at street-scale.
+    // Re-cull on every pan / zoom. moveend fires for both, so a single
+    // listener covers what used to take a full O(n²) rebuild on zoomend only
+    // (and never updated on pan at all).
     const onMove = () => render();
     map.on('moveend', onMove);
-    return () => {
-      map.off('moveend', onMove);
-      bookmarkMarkersRef.current.forEach((m) => m.remove());
-      bookmarkMarkersRef.current = [];
-    };
+    return () => { map.off('moveend', onMove); };
   }, [bookmarkPins, showBookmarkPins]);
 
   // Update route polyline
@@ -1427,6 +1440,42 @@ const MapView: React.FC<MapViewProps> = ({
       radiusCircleRef.current = circle;
     }
   }, [randomWalkRadius, currentPosition, randomWalkCenter, randomWalkCenterMode, dualMode]);
+
+  // 種花模式: place a numbered badge (1..N) at every circle-segment vertex
+  // so the user can see exactly how many segments each flower's circle has
+  // and the order they're walked. divIcon markers sit above the route line
+  // (zIndexOffset) so they stay visible once the simulation starts.
+  const flowerPreviewRef = useRef<L.Marker[]>([]);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    flowerPreviewRef.current.forEach((p) => { try { p.remove(); } catch { /* ignore */ } });
+    flowerPreviewRef.current = [];
+    if (dualMode) return;
+    if (!flowerPreview || flowerPreview.length === 0) return;
+    flowerPreview.forEach((poly) => {
+      if (!poly || poly.length < 2) return;
+      poly.forEach((p, k) => {
+        const icon = L.divIcon({
+          className: 'flower-seg-badge',
+          html: `<div style="display:flex;align-items:center;justify-content:center;`
+            + `width:20px;height:20px;border-radius:50%;`
+            + `background:#ffcf3f;color:#2a1d00;font-size:11px;font-weight:800;`
+            + `border:2px solid #8a5a12;box-shadow:0 1px 4px rgba(0,0,0,0.6);`
+            + `font-family:system-ui,sans-serif;">${k + 1}</div>`,
+          iconSize: [20, 20],
+          iconAnchor: [10, 10],
+        });
+        const m = L.marker([p.lat, p.lng], {
+          icon,
+          interactive: false,
+          keyboard: false,
+          zIndexOffset: 1000,
+        }).addTo(map);
+        flowerPreviewRef.current.push(m);
+      });
+    });
+  }, [flowerPreview, dualMode]);
 
   // ── Dual-mode per-device overlays ────────────────────────────────────
   // Keeps refs for markers/polylines/circles keyed by udid so updates don't

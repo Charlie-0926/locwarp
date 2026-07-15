@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile, File
 from fastapi.responses import Response
 from pydantic import BaseModel
 
@@ -138,11 +138,139 @@ async def export_bookmarks():
                     headers={"Content-Disposition": 'attachment; filename="bookmarks.json"'})
 
 
+@router.get("/gpx/export/{bookmark_id}")
+async def export_bookmark_gpx(bookmark_id: str):
+    """Export a single saved coordinate as a GPX waypoint file."""
+    bm = _bm()
+    mark = next((b for b in bm.list_bookmarks() if b.id == bookmark_id), None)
+    if mark is None:
+        raise HTTPException(status_code=404, detail="Bookmark not found")
+
+    from services.gpx_service import GpxService
+    import urllib.parse
+
+    gpx_xml = GpxService.generate_gpx_waypoints(
+        [{"lat": mark.lat, "lng": mark.lng, "name": mark.name,
+          "description": mark.address or None}],
+        name=mark.name or "LocWarp Bookmark",
+    )
+    base = mark.name or "bookmark"
+    safe_name = "".join(ch if ord(ch) < 128 and ch not in '"\\/' else "_" for ch in base) or "bookmark"
+    utf8_encoded = urllib.parse.quote(f"{base}.gpx", safe="")
+    disposition = f'attachment; filename="{safe_name}.gpx"; filename*=UTF-8\'\'{utf8_encoded}'
+    return Response(content=gpx_xml, media_type="application/gpx+xml",
+                    headers={"Content-Disposition": disposition})
+
+
+@router.get("/gpx/export/category/{category_id}")
+async def export_category_gpx(category_id: str):
+    """Export every saved coordinate in a category as a single GPX waypoint file."""
+    bm = _bm()
+    cat = next((c for c in bm.list_categories() if c.id == category_id), None)
+    marks = [b for b in bm.list_bookmarks() if (b.category_id or "default") == category_id]
+    if not marks:
+        raise HTTPException(status_code=404, detail="No bookmarks in category")
+
+    from services.gpx_service import GpxService
+    import urllib.parse
+
+    cat_name = (cat.name if cat else "") or "LocWarp Bookmarks"
+    gpx_xml = GpxService.generate_gpx_waypoints(
+        [{"lat": m.lat, "lng": m.lng, "name": m.name,
+          "description": m.address or None} for m in marks],
+        name=cat_name,
+    )
+    safe_name = "".join(ch if ord(ch) < 128 and ch not in '"\\/' else "_" for ch in cat_name) or "bookmarks"
+    utf8_encoded = urllib.parse.quote(f"{cat_name}.gpx", safe="")
+    disposition = f'attachment; filename="{safe_name}.gpx"; filename*=UTF-8\'\'{utf8_encoded}'
+    return Response(content=gpx_xml, media_type="application/gpx+xml",
+                    headers={"Content-Disposition": disposition})
+
+
+@router.get("/gpx/categories/export.zip")
+async def export_categories_zip(ids: str = ""):
+    """Export several categories as a ZIP, one GPX waypoint file per category.
+
+    *ids* is a comma-separated list of category ids. Categories with no saved
+    coordinates are skipped. Each GPX inside the zip is named after its category.
+    """
+    import io
+    import zipfile
+    from services.gpx_service import GpxService
+
+    id_list = [x for x in (ids or "").split(",") if x]
+    if not id_list:
+        raise HTTPException(status_code=400, detail="No categories selected")
+
+    bm = _bm()
+    cats = {c.id: c for c in bm.list_categories()}
+    marks = bm.list_bookmarks()
+
+    buf = io.BytesIO()
+    used: set[str] = set()
+    wrote = 0
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for cid in id_list:
+            cat = cats.get(cid)
+            cat_name = (cat.name if cat else cid) or cid
+            cat_marks = [b for b in marks if (b.category_id or "default") == cid]
+            if not cat_marks:
+                continue
+            gpx_xml = GpxService.generate_gpx_waypoints(
+                [{"lat": m.lat, "lng": m.lng, "name": m.name,
+                  "description": m.address or None} for m in cat_marks],
+                name=cat_name,
+            )
+            base = "".join(ch if ch not in '\\/:*?"<>|' else "_" for ch in cat_name).strip() or "category"
+            fname = f"{base}.gpx"
+            n = 2
+            while fname in used:
+                fname = f"{base} ({n}).gpx"
+                n += 1
+            used.add(fname)
+            zf.writestr(fname, gpx_xml)
+            wrote += 1
+
+    if wrote == 0:
+        raise HTTPException(status_code=404, detail="No bookmarks in selected categories")
+
+    buf.seek(0)
+    return Response(content=buf.getvalue(), media_type="application/zip",
+                    headers={"Content-Disposition": 'attachment; filename="bookmarks-categories.zip"'})
+
+
 @router.post("/import")
 async def import_bookmarks(data: dict):
     import json
     bm = _bm()
     count = bm.import_json(json.dumps(data))
+    return {"imported": count}
+
+
+@router.post("/gpx/import")
+async def import_bookmarks_gpx(file: UploadFile = File(...)):
+    """Import a GPX file as saved coordinates (one bookmark per waypoint)."""
+    from services.gpx_service import GpxService
+
+    content = await file.read()
+    text = content.decode("utf-8")
+    points = GpxService.parse_gpx_named(text)
+    if not points:
+        raise HTTPException(status_code=400, detail="No points found in GPX")
+
+    bm = _bm()
+    raw_name = file.filename or "GPX"
+    base = raw_name.rsplit(".", 1)[0] if raw_name.lower().endswith(".gpx") else raw_name
+    count = 0
+    for i, pt in enumerate(points):
+        name = pt.get("name") or (base if len(points) == 1 else f"{base} {i + 1}")
+        bm.create_bookmark(
+            name=name,
+            lat=pt["lat"],
+            lng=pt["lng"],
+            address=pt.get("description") or "",
+        )
+        count += 1
     return {"imported": count}
 
 
