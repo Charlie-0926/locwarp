@@ -35,18 +35,18 @@
 
 ## GitHub fork
 
-目前只設定：
+目前已設定：
 
 ```text
 upstream = https://github.com/keezxc1223/locwarp.git
+origin   = https://github.com/Charlie-0926/locwarp.git
 ```
 
-建立本方 fork 後設定：
+第一次推送客製分支時執行：
 
 ```powershell
-git remote add origin https://github.com/<owner>/locwarp.git
 git push -u origin main
 git push -u origin custom/main
 ```
 
-是否公開與 repository owner 必須由維護者決定，腳本不會自動建立或推送遠端 repository。
+同步腳本不會自動推送遠端 repository，正式發布仍由維護者確認。

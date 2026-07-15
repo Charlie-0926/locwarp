@@ -1,6 +1,9 @@
 # 專案進度
 
 ## 2026-07-15: 官方版本同步與客製模組化架構盤點
+- 已找到並設定本方 fork `Charlie-0926/locwarp` 為 `origin`；目前 `origin/main` 與官方 `upstream/main` 同為 v0.2.190，本機 `custom/main` 含本次稽核文件後多 5 個尚未推送的客製／整合 commits。
+- 完成 `doc/2026-07-15-custom-feature-merge-audit.md`：逐項確認 Spiral、Jump Random Walk、2-opt、多裝置同步／鏡像／接手、Pyright/Mypy 與 async 修正的程式路徑均未在合併中遺失。
+- 重跑 `scripts/verify.ps1`：Pyright 0 errors、Electron 語法、TypeScript 與 Vite production build 全部通過，且無 conflict markers；Mypy 因本機沒有可用 Python interpreter 而無法在本輪重跑。
 - 已實際將官方 v0.2.190 合併到客製版：同步分支 `sync/upstream-v0.2.190`，merge commit `705fbea`，並 fast-forward 回 `custom/main`；乾淨 `main` 持續對齊 `upstream/main`。
 - 11 個衝突已解決並由 `rerere` 記錄；同時保留客製 Spiral／等待隨機漫步與官方 Flower／Wi-Fi dwell keepalive，正式 build、tsc、Electron 語法檢查通過，Pyright 0 errors。
 - 新增 `scripts/rehearse-upstream.ps1`、`scripts/sync-upstream.ps1`、`scripts/verify.ps1` 與 `doc/upstream-sync/` 操作／同步紀錄，形成固定的試合併、正式同步、驗證與人工核准流程。
