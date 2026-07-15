@@ -2,13 +2,13 @@
 
 ## 2026-07-15：完成 thin fork 客製擴充邊界強化
 
-- 首次 GitHub Actions 執行中，extension pytest 與 frontend TypeScript/build 通過；Linux Mypy 找到 Windows `ctypes` 平台型別及 GPX loop variable narrowing 共 10 項錯誤，已完成跨平台型別修正並通過本機 Pyright，待重新推送驗證。
+- GitHub Actions 最終通過：extension pytest、全 backend Mypy、backend Pyright、frontend TypeScript 與 production build 全部成功。首次執行找到的 Windows `ctypes` 平台型別及 GPX loop variable narrowing 共 10 項錯誤已修正。
 - 將 Jump Random Walk 的 backend dwell policy/schema/router 與 frontend API/control UI 移至客製 extension。
 - 將 2-opt 演算法與 frontend adapter 移至 route optimizer extension，並加入單元測試。
 - 將多裝置 backend coordinator 及 frontend runtime/fan-out/synchronize-start 移至 extension；同時修正 ETA tracker 鏡像寫入唯讀 property 的問題。
 - 加入客製 location router、extension boundary check、GitHub Actions compatibility workflow 與三組 extension tests。
 - 完整 `scripts/verify.ps1` 通過：Pyright 0 errors、Electron syntax、TypeScript 與 Vite production build 全部成功；僅既有 bundle 警告。
-- 已 fetch 官方 upstream，最新版仍為 v0.2.190 (`c1a6c36`)；目前 `custom/main` 的 merge-tree rehearsal 通過，與官方版本無衝突。
+- 已 fetch 官方 upstream，最新版仍為 v0.2.190 (`c1a6c36`)；目前 `custom/main` 的 merge-tree rehearsal 通過，與官方版本無衝突，且已推送至 `Charlie-0926/locwarp`。
 
 ## 2026-07-15: 官方版本同步與客製模組化架構盤點
 - 已找到並設定本方 fork `Charlie-0926/locwarp` 為 `origin`；目前 `origin/main` 與官方 `upstream/main` 同為 v0.2.190，本機 `custom/main` 含本次稽核文件後多 5 個尚未推送的客製／整合 commits。

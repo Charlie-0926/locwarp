@@ -17,7 +17,7 @@
 
 ## 驗證
 
-- 首次 GitHub Actions：extension pytest 與 frontend job 通過；Mypy 揭露 `instance_lock.py` 的跨平台 `ctypes` stubs 差異及 `gpx_service.py` 的 loop variable 型別收窄，已修正後重跑。
+- GitHub Actions：extension pytest、全 backend Mypy、backend Pyright、frontend TypeScript 與 production build 全部通過。首次執行揭露的 `instance_lock.py` 跨平台 `ctypes` stubs 差異及 `gpx_service.py` loop variable 型別收窄已修正。
 - Extension boundaries：通過。
 - Backend Pyright：0 errors、0 warnings。
 - Frontend TypeScript：通過。
@@ -25,5 +25,5 @@
 - Vite production build：通過；只有既有 chunk size/dynamic import 警告。
 - `git diff --check`：通過。
 - Upstream merge-tree rehearsal：目前 `custom/main` 與 `upstream/main` (`c1a6c36`) 無衝突。
-- 本機缺少 Python interpreter，因此 pytest/Mypy 由 push 後的 GitHub Actions 執行。
+- 本機缺少 Python interpreter；pytest/Mypy 已由 GitHub Actions 的 Linux/Python 3.11 環境執行並通過。
 - 實機行為仍需兩台 iPhone 驗證多裝置接手、等待期間 hot apply 與 route waypoint 切換。
