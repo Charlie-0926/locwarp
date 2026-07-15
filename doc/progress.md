@@ -1,6 +1,11 @@
 # 專案進度
 
 ## 2026-07-15: 官方版本同步與客製模組化架構盤點
+- 已實際將官方 v0.2.190 合併到客製版：同步分支 `sync/upstream-v0.2.190`，merge commit `705fbea`，並 fast-forward 回 `custom/main`；乾淨 `main` 持續對齊 `upstream/main`。
+- 11 個衝突已解決並由 `rerere` 記錄；同時保留客製 Spiral／等待隨機漫步與官方 Flower／Wi-Fi dwell keepalive，正式 build、tsc、Electron 語法檢查通過，Pyright 0 errors。
+- 新增 `scripts/rehearse-upstream.ps1`、`scripts/sync-upstream.ps1`、`scripts/verify.ps1` 與 `doc/upstream-sync/` 操作／同步紀錄，形成固定的試合併、正式同步、驗證與人工核准流程。
+- 新增 `.gitattributes` 統一主要原始碼換行規則，降低 Windows CRLF 造成的無效 diff 與衝突。
+- GitHub connector 未找到本方既有 locwarp fork，因此尚未設定 `origin` 或推送；需由維護者決定 repository owner 與公開／私人屬性。
 - 已提交既有客製快照 `d18ba45`，後續架構調整不再與歷史客製差異混在同一 commit。
 - 完成第一個實際 extension 遷移：backend 新增 `extensions` registry 並將 Spiral handler/schema 移入 `backend/extensions/custom/spiral/`；frontend 將 Spiral API adapter、descriptor 與設定面板移入 `frontend/src/extensions/custom/spiral/`。
 - Spiral 在核心的接點已縮減為 handler registry lookup、API router import 與前端元件／呼叫 adapter；Pyright 0 errors、TypeScript `tsc --noEmit` 通過、Vite production build 通過（僅既有 chunk/dynamic import 警告）。
