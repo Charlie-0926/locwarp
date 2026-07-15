@@ -6,10 +6,10 @@ import asyncio
 import logging
 import math
 import random
-import random
 
 from models.schemas import Coordinate, MovementMode, SimulationState
 from config import resolve_speed_profile, SpeedProfile
+from extensions.custom.jump_random_walk import perform_dwell_step
 
 logger = logging.getLogger(__name__)
 
@@ -399,32 +399,20 @@ async def jump_wait(
             except asyncio.TimeoutError:
                 remaining -= slice_s
                 elapsed += slice_s
-            if do_random_walk and base_wp is not None and remaining > 0:
-                radius_m = getattr(engine, "jump_random_walk_radius", 10.0)
-                r = radius_m * math.sqrt(random.random())
-                theta = random.random() * 2 * math.pi
-                dx = r * math.cos(theta)
-                dy = r * math.sin(theta)
-                dlat = dy / 111320.0
-                dlng = dx / (111320.0 * math.cos(math.radians(base_wp.lat)))
-                cur_lat = base_wp.lat + dlat
-                cur_lng = base_wp.lng + dlng
-                await engine._set_position(cur_lat, cur_lng)
-                eta_seconds = (total_waypoints - 1 - index) * (pre_delay + post_delay) + (post_delay if is_pre_delay else 0.0) + remaining
-                await engine._emit("position_update", {
-                    "lat": cur_lat, "lng": cur_lng,
-                    "speed_mps": 0.0,
-                    "progress": (index + (elapsed / max(seconds, 1.0))) / max(total_waypoints, 1),
-                    "segment_index": index,
-                    "total_segments": total_waypoints,
-                    "lap_count": engine.lap_count,
-                    "distance_traveled": 0.0,
-                    "distance_remaining": 0.0,
-                    "eta_seconds": eta_seconds,
-                    "eta_arrival": "",
-                    "is_paused": False,
-                })
-            else:
+            stepped = await perform_dwell_step(
+                engine,
+                base_wp,
+                enabled=do_random_walk,
+                remaining=remaining,
+                elapsed=elapsed,
+                total_seconds=seconds,
+                index=index,
+                total_waypoints=total_waypoints,
+                pre_delay=pre_delay,
+                post_delay=post_delay,
+                is_pre_delay=is_pre_delay,
+            )
+            if not stepped:
                 since_push += slice_s
                 if since_push >= KEEPALIVE_EVERY:
                     since_push = 0.0

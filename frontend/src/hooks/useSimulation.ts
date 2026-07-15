@@ -3,6 +3,19 @@ import * as api from '../services/api'
 import type { WsMessage } from './useWebSocket'
 import { playCompletionAlert } from '../services/alertSound'
 import { startSpiralRequest } from '../extensions/custom/spiral'
+import { applyJumpRandomWalkSettings } from '../extensions/custom/jumpRandomWalk'
+import {
+  emptyRuntime,
+  fanoutRequests,
+  synchronizeStart,
+} from '../extensions/custom/multiDevice'
+import type {
+  DeviceRuntime,
+  FanoutOutcome,
+  RuntimesMap,
+} from '../extensions/custom/multiDevice'
+
+export type { DeviceRuntime, FanoutOutcome, RuntimesMap } from '../extensions/custom/multiDevice'
 
 export enum SimMode {
   Teleport = 'teleport',
@@ -49,66 +62,6 @@ const MODE_DEFAULT_KMH: Record<MoveMode, number> = {
   [MoveMode.Walking]: 10.8,
   [MoveMode.Running]: 19.8,
   [MoveMode.Driving]: 60,
-}
-
-// ── Per-device runtime state (group mode) ──────────────────────────────
-export interface DeviceRuntime {
-  udid: string
-  state: string
-  currentPos: LatLng | null
-  destination: LatLng | null
-  routePath: LatLng[]
-  progress: number
-  eta: number
-  distanceRemaining: number
-  distanceTraveled: number
-  waypointIndex: number | null
-  currentSpeedKmh: number
-  error: string | null
-  lapCount: number
-  cooldown: number
-}
-
-export type RuntimesMap = Record<string, DeviceRuntime>
-
-function emptyRuntime(udid: string): DeviceRuntime {
-  return {
-    udid,
-    state: 'idle',
-    currentPos: null,
-    destination: null,
-    routePath: [],
-    progress: 0,
-    eta: 0,
-    distanceRemaining: 0,
-    distanceTraveled: 0,
-    waypointIndex: null,
-    currentSpeedKmh: 0,
-    error: null,
-    lapCount: 0,
-    cooldown: 0,
-  }
-}
-
-// ── Fan-out helper ─────────────────────────────────────────────────────
-export interface FanoutOutcome<T> {
-  ok: Array<{ udid: string; value: T }>
-  failed: Array<{ udid: string; reason: string }>
-}
-
-export function summarizeResults<T>(
-  results: PromiseSettledResult<T>[],
-  udids: string[],
-  _action: string,
-): FanoutOutcome<T> {
-  const ok: FanoutOutcome<T>['ok'] = []
-  const failed: FanoutOutcome<T>['failed'] = []
-  results.forEach((r, i) => {
-    const udid = udids[i]
-    if (r.status === 'fulfilled') ok.push({ udid, value: r.value })
-    else failed.push({ udid, reason: r.reason?.message ?? String(r.reason) })
-  })
-  return { ok, failed }
 }
 
 export function useSimulation(subscribe?: WsSubscribe, primaryUdid?: string | null) {
@@ -1056,8 +1009,7 @@ export function useSimulation(subscribe?: WsSubscribe, primaryUdid?: string | nu
       setError('No device connected')
       return { ok: [], failed: [] }
     }
-    const results = await Promise.allSettled(udids.map((u) => fn(u)))
-    return summarizeResults(results, udids, action)
+    return fanoutRequests(udids, fn)
   }, [])
 
   // Group-mode sync helper: before any action that depends on a common start
@@ -1065,14 +1017,8 @@ export function useSimulation(subscribe?: WsSubscribe, primaryUdid?: string | nu
   // target device to the primary's current position so both phones begin from
   // the same coordinate and follow identical paths.
   const preSyncStart = useCallback(async (udids: string[]) => {
-    if (udids.length < 2) return
-    const pos = currentPosition
-    if (!pos) return
     try {
-      await Promise.allSettled(udids.map((u) => api.teleport(pos.lat, pos.lng, u)))
-      // Tiny settle delay so devices finalise the teleport before the next
-      // command arrives.
-      await new Promise((r) => setTimeout(r, 150))
+      await synchronizeStart(udids, currentPosition, api.teleport)
     } catch {
       // Non-fatal: fall through to the primary action.
     }
@@ -1124,7 +1070,7 @@ export function useSimulation(subscribe?: WsSubscribe, primaryUdid?: string | nu
   }, [fanout, moveMode, customSpeedKmh, speedMinKmh, speedMaxKmh])
 
   const applyJumpSettingsAll = useCallback(async (udids: string[]) => {
-    return fanout(udids, 'apply-jump-settings', (u) => api.applyJumpSettings(jumpRandomWalk, jumpRandomWalkRadius, u))
+    return fanout(udids, 'apply-jump-settings', (u) => applyJumpRandomWalkSettings(jumpRandomWalk, jumpRandomWalkRadius, u))
   }, [fanout, jumpRandomWalk, jumpRandomWalkRadius])
 
   const pauseAll = useCallback((udids: string[]) => fanout(udids, 'pause', (u) => api.pauseSim(u)), [fanout])

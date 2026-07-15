@@ -17,6 +17,10 @@ from services.route_store import RouteManager
 from services.coord_format import CoordinateFormatter
 from services.reconnect import ReconnectManager
 from instance_lock import SingleInstanceLock
+from extensions.custom.multi_device import (
+    auto_sync_new_device,
+    follow_primary_positions,
+)
 
 # Configure logging — console + rotating file in ~/.locwarp/logs/
 _log_fmt = "%(asctime)s [%(name)s] %(levelname)s: %(message)s"
@@ -212,152 +216,11 @@ app_state = AppState()
 # ── Lifespan ─────────────────────────────────────────────
 
 async def _auto_sync_new_device_to_primary(new_udid: str) -> None:
-    """Align a freshly-connected second device to whatever the primary
-    device is doing, so dual-device mode behaves as one unit without the
-    user having to explicitly restart actions.
-
-    Behaviour:
-      * No primary yet, or primary is the same as *new_udid* → noop
-      * Primary has a ``current_position`` → teleport new device there
-      * Primary is running navigate / loop / multi_stop / random_walk →
-        replay the same action (with the same args) on the new engine so
-        both devices share the target / waypoints / seed
-      * Primary is idle / paused / teleport-only → only the position
-        sync happens; the user's next action will fan-out to both
-    """
-    import asyncio
-    primary_udid = app_state._primary_udid
-    if primary_udid is None or primary_udid == new_udid:
-        return
-    primary_eng = app_state.simulation_engines.get(primary_udid)
-    new_eng = app_state.simulation_engines.get(new_udid)
-    if primary_eng is None or new_eng is None:
-        return
-
-    pos = primary_eng.current_position
-    if pos is None:
-        # Primary hasn't been given a position yet — nothing to sync.
-        logger.info("Auto-sync: primary %s has no position, skipping %s", primary_udid, new_udid)
-        return
-
-    # 1) Teleport the new device to match the primary's current virtual
-    #    position (keeps the 'one marker' invariant in dual mode).
-    try:
-        await new_eng.teleport(pos.lat, pos.lng)
-        logger.info("Auto-sync: %s teleported to primary %s position (%.6f, %.6f)",
-                    new_udid, primary_udid, pos.lat, pos.lng)
-    except Exception:
-        logger.exception("Auto-sync: teleport failed for %s", new_udid)
-        return
-
-    # 2) If the primary is running a dynamic sim, attach the new device
-    #    as a position-follower instead of replaying the sim from scratch.
-    #    Why not replay: each sim mode restarts at its own "beginning"
-    #      * loop:      _move_along_route emits coords[0] first → iPhone
-    #                   teleports back to waypoint[0] before walking
-    #      * multi_stop: routes from current pos back to waypoint[0]
-    #                   first if >50m away → iPhone walks back to start
-    #      * random_walk: rng resets at walk_count=0 → iPhone walks the
-    #                   first random destination from scratch
-    #    All three desync the rejoining iPhone from the surviving one and
-    #    show up on Google Maps as the rejoining phone going back to the
-    #    route's beginning. Following primary's positions instead keeps
-    #    both iPhones perfectly in sync.
-    from models.schemas import SimulationState
-    dynamic = {
-        SimulationState.NAVIGATING,
-        SimulationState.LOOPING,
-        SimulationState.MULTI_STOP,
-        SimulationState.RANDOM_WALK,
-        SimulationState.SPIRAL,
-    }
-    
-    primary_state = primary_eng.state
-    if primary_state == SimulationState.PAUSED:
-        primary_state = getattr(primary_eng, "_paused_from", SimulationState.IDLE)
-        
-    if primary_state not in dynamic:
-        return
-
-    logger.info("Auto-sync: attaching %s as position-follower of primary %s", new_udid, primary_udid)
-    
-    # Mirror the state to the follower so its UI doesn't look dead (IDLE)
-    new_eng.state = primary_eng.state
-    new_eng._paused_from = getattr(primary_eng, "_paused_from", None)
-    if getattr(primary_eng, "_last_route_path", None):
-        new_eng._last_route_path = list(primary_eng._last_route_path)
-    
-    async def _emit_initial_state():
-        try:
-            await new_eng._emit("state_change", {"state": new_eng.state.value})
-            if new_eng._last_route_path:
-                await new_eng._emit("route_path", {"coords": new_eng._last_route_path})
-        except Exception:
-            pass
-    asyncio.create_task(_emit_initial_state())
-
-    asyncio.create_task(_follow_primary_positions(new_udid, primary_udid))
+    await auto_sync_new_device(app_state, new_udid, logger)
 
 
 async def _follow_primary_positions(follower_udid: str, primary_udid: str) -> None:
-    """Mirror the primary engine's current_position onto the follower
-    device. Runs until the primary changes, the follower disconnects,
-    the follower starts its own simulation (which sets _stop_event via
-    _ensure_stopped), or the primary engine is gone."""
-    import asyncio
-    poll_interval = 0.5  # 500ms — primary's own updates run ~1 Hz, so this oversamples slightly without thrashing
-    last_pushed_lat: float | None = None
-    last_pushed_lng: float | None = None
-    while True:
-        # Tear down conditions
-        if app_state._primary_udid != primary_udid:
-            logger.info("Follower %s: primary changed (%s → %s), stopping follow",
-                        follower_udid, primary_udid, app_state._primary_udid)
-            return
-        follower_eng = app_state.simulation_engines.get(follower_udid)
-        if follower_eng is None:
-            logger.info("Follower %s: engine gone, stopping follow", follower_udid)
-            return
-        if follower_eng._stop_event.is_set():
-            logger.info("Follower %s: stop_event set (own sim started or stop pressed), stopping follow",
-                        follower_udid)
-            return
-        primary_eng = app_state.simulation_engines.get(primary_udid)
-        if primary_eng is None:
-            logger.info("Follower %s: primary engine gone, stopping follow", follower_udid)
-            return
-
-        pos = primary_eng.current_position
-        if pos is not None and (pos.lat != last_pushed_lat or pos.lng != last_pushed_lng):
-            try:
-                await follower_eng._set_position(pos.lat, pos.lng)
-                last_pushed_lat, last_pushed_lng = pos.lat, pos.lng
-                
-                # Emit WebSocket update so the follower's map pin moves in UI
-                await follower_eng._emit("position_update", {"lat": pos.lat, "lng": pos.lng})
-                
-                # Mirror status fields so /api/status (UI polling) shows matching ETA/progress
-                follower_eng.distance_traveled = primary_eng.distance_traveled
-                follower_eng.distance_remaining = primary_eng.distance_remaining
-                follower_eng.lap_count = primary_eng.lap_count
-                follower_eng.segment_index = primary_eng.segment_index
-                follower_eng.total_segments = primary_eng.total_segments
-                follower_eng._current_speed_mps = primary_eng._current_speed_mps
-                
-                follower_eng.eta_tracker.distance_remaining = primary_eng.eta_tracker.distance_remaining
-                follower_eng.eta_tracker.eta_seconds = primary_eng.eta_tracker.eta_seconds
-                follower_eng.eta_tracker.eta_arrival = primary_eng.eta_tracker.eta_arrival
-                follower_eng.eta_tracker.progress = primary_eng.eta_tracker.progress
-            except Exception:
-                logger.debug("Follower %s: _set_position failed", follower_udid, exc_info=True)
-                
-        # Keep follower state aligned with primary (e.g. if primary is Paused/Resumed)
-        if follower_eng.state != primary_eng.state:
-            follower_eng.state = primary_eng.state
-            follower_eng._paused_from = getattr(primary_eng, "_paused_from", None)
-            asyncio.create_task(follower_eng._emit("state_change", {"state": follower_eng.state.value}))
-            
-        await asyncio.sleep(poll_interval)
+    await follow_primary_positions(app_state, follower_udid, primary_udid, logger)
 
 
 async def _wifi_tunnel_keepalive():

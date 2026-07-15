@@ -162,6 +162,13 @@ frontend/src/extensions/
 - 可逐項辨識客製功能是否已被官方吸收。
 - 同步後可由固定命令完成型別、build 與核心行為驗證。
 
+## 2026-07-15 實作進度
+
+- Phase 0、Phase 1 已完成：fork/remotes、官方鏡像分支、客製分支、feature ledger 與固定驗證腳本均已建立。
+- Phase 2、Phase 3 的主要拆分已完成：Spiral、Jump Random Walk、2-opt 與多裝置 coordinator/runtime 已有 backend/frontend extension 邊界。
+- Phase 4 已完成第一版：本機 upstream rehearsal、extension boundary check 與 GitHub Actions compatibility workflow 已加入。
+- 尚未完全消除的核心差異屬跨切面整合點，例如 simulation state、route resume、WebSocket 狀態事件與 UI mode wiring；這些差異由邊界檢查、rerere 與同步演練共同保護。
+
 ## 下一步建議
 
-先執行 Phase 0，不要直接重構現有工作目錄。第一個實作工作應是：建立乾淨官方 clone、確認共同基底、產生完整差異清單與 feature ledger。完成這一步後，再以 Spiral 作為第一個 extension 範例，能把風險控制在最小範圍。
+每次官方發布後依 `doc/upstream-sync/README.md` 執行 rehearsal 與暫存分支合併。若某個通用修正已進入 upstream，先從 feature ledger 標記並刪除重複 patch，再發布新的客製版 tag。

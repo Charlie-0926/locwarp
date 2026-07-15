@@ -21,6 +21,8 @@ import PauseControl from './components/PauseControl'
 import StatusBar from './components/StatusBar'
 import { DeviceChipRow } from './components/DeviceChipRow'
 import type { FanoutOutcome } from './hooks/useSimulation'
+import { applyJumpRandomWalkSettings } from './extensions/custom/jumpRandomWalk'
+import { optimizeRoute } from './extensions/custom/routeOptimizer'
 
 // Summarise a group fan-out result into a single toast string.
 // Call from action handlers: showToast(toastForFanout(t, 'teleport', outcome, connectedDevices))
@@ -1925,7 +1927,7 @@ const App: React.FC = () => {
               const outcome = await sim.applyJumpSettingsAll(udids)
               showToast(toastForFanout(t, t('panel.apply_speed_success'), outcome, device.connectedDevices))
             } else {
-              await api.applyJumpSettings(sim.jumpRandomWalk, sim.jumpRandomWalkRadius)
+              await applyJumpRandomWalkSettings(sim.jumpRandomWalk, sim.jumpRandomWalkRadius)
               showToast(t('panel.apply_speed_success'))
             }
           }}
@@ -2267,7 +2269,7 @@ const App: React.FC = () => {
                       style={{ flex: 1 }}
                       onClick={async () => {
                         try {
-                          const res = await api.routeOptimize(
+                          const res = await optimizeRoute(
                             sim.waypoints.map((w: any) => ({ lat: w.lat, lng: w.lng })),
                             sim.moveMode, true, sim.routeEngine, sim.straightLine,
                           )

@@ -13,16 +13,14 @@ from models.schemas import (
     RandomWalkRequest,
     JoystickStartRequest,
     GoldDittoCycleRequest,
-    ApplyJumpSettingsRequest,
     SimulationStatus,
-    SimulationState,
     Coordinate,
     CooldownSettings,
     CooldownStatus,
     CoordFormatRequest,
     CoordinateFormat,
 )
-from extensions.custom.spiral.schema import SpiralRequest
+from extensions.custom.location_router import build_custom_location_router
 
 router = APIRouter(prefix="/api/location", tags=["location"])
 
@@ -289,18 +287,6 @@ async def apply_speed(req: ApplySpeedRequest):
     return {"status": "applied", "speed_mps": profile["speed_mps"]}
 
 
-@router.post("/apply-jump-settings")
-async def apply_jump_settings(req: ApplyJumpSettingsRequest):
-    engine = await _engine(getattr(req, "udid", None) if 'req' in dir() else None)
-    if engine.state not in (SimulationState.LOOPING, SimulationState.MULTI_STOP):
-        raise HTTPException(
-            status_code=400,
-            detail={"code": "invalid_state", "message": "目前不在巡邏或多點導航模式"},
-        )
-    engine.apply_jump_settings(req.jump_random_walk, req.jump_random_walk_radius)
-    return {"status": "applied", "jump_random_walk": req.jump_random_walk, "jump_random_walk_radius": req.jump_random_walk_radius}
-
-
 @router.post("/teleport")
 async def teleport(req: TeleportRequest):
     engine = await _engine(getattr(req, "udid", None) if 'req' in dir() else None)
@@ -383,6 +369,9 @@ def _spawn(coro):
 
     task.add_done_callback(_on_done)
     return task
+
+
+router.include_router(build_custom_location_router(_engine, _spawn))
 
 
 @router.post("/navigate")
@@ -492,19 +481,6 @@ async def random_walk(req: RandomWalkRequest):
         forward_turn_deg=req.forward_turn_deg,
     ))
     return {"status": "started", "radius_m": req.radius_m, "mode": req.mode}
-
-
-@router.post("/spiral")
-async def start_spiral(req: SpiralRequest):
-    engine = await _engine(getattr(req, "udid", None) if 'req' in dir() else None)
-    _spawn(engine.start_spiral(
-        req.center, req.radius_m, req.spacing_m, req.mode,
-        speed_kmh=req.speed_kmh,
-        speed_min_kmh=req.speed_min_kmh, speed_max_kmh=req.speed_max_kmh,
-        straight_line=req.straight_line,
-        route_engine=req.route_engine,
-    ))
-    return {"status": "started", "radius_m": req.radius_m, "spacing_m": req.spacing_m, "mode": req.mode}
 
 
 @router.post("/joystick/start")

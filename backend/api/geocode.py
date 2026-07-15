@@ -17,10 +17,10 @@ from services.geo_extras import (
     get_timezone,
     haversine_duration_matrix,
     optimize_order_exact,
-    optimize_order_2opt,
     osrm_table,
     valhalla_matrix,
 )
+from extensions.custom.route_optimizer import optimize_order_2opt
 
 router = APIRouter(prefix="/api/geocode", tags=["geocode"])
 logger = logging.getLogger("locwarp")

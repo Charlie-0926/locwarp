@@ -425,35 +425,3 @@ def optimize_order_exact(
             best_d = d
             best_order = order
     return best_order
-
-
-def optimize_order_2opt(
-    durations: list[list[float]], keep_first: bool,
-) -> list[int]:
-    """2-opt local search optimization for larger TSP sets.
-    Starts with nearest neighbor, then iteratively reverses segments
-    if it improves the total route distance."""
-    n = len(durations)
-    if n <= 2:
-        return list(range(n))
-    
-    order = optimize_order_nearest_neighbor(durations, keep_first)
-    best_cost = _route_total(durations, order)
-    improved = True
-    
-    while improved:
-        improved = False
-        start_idx = 1 if keep_first else 0
-        for i in range(start_idx, n - 1):
-            for j in range(i + 1, n):
-                new_order = order[:]
-                new_order[i:j+1] = reversed(order[i:j+1])
-                new_cost = _route_total(durations, new_order)
-                if new_cost < best_cost - 1e-4:
-                    order = new_order
-                    best_cost = new_cost
-                    improved = True
-                    break
-            if improved:
-                break
-    return order

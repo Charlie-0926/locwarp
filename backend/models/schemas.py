@@ -180,12 +180,6 @@ class JoystickStartRequest(BaseModel):
     udid: str | None = None
 
 
-class ApplyJumpSettingsRequest(BaseModel):
-    jump_random_walk: bool
-    jump_random_walk_radius: float
-    udid: str | None = None
-
-
 class JoystickInput(BaseModel):
     direction: float = Field(ge=0, le=360)
     intensity: float = Field(ge=0, le=1)

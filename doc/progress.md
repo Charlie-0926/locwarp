@@ -1,5 +1,14 @@
 # 專案進度
 
+## 2026-07-15：完成 thin fork 客製擴充邊界強化
+
+- 將 Jump Random Walk 的 backend dwell policy/schema/router 與 frontend API/control UI 移至客製 extension。
+- 將 2-opt 演算法與 frontend adapter 移至 route optimizer extension，並加入單元測試。
+- 將多裝置 backend coordinator 及 frontend runtime/fan-out/synchronize-start 移至 extension；同時修正 ETA tracker 鏡像寫入唯讀 property 的問題。
+- 加入客製 location router、extension boundary check、GitHub Actions compatibility workflow 與三組 extension tests。
+- 完整 `scripts/verify.ps1` 通過：Pyright 0 errors、Electron syntax、TypeScript 與 Vite production build 全部成功；僅既有 bundle 警告。
+- 已 fetch 官方 upstream，最新版仍為 v0.2.190 (`c1a6c36`)；目前 `custom/main` 的 merge-tree rehearsal 通過，與官方版本無衝突。
+
 ## 2026-07-15: 官方版本同步與客製模組化架構盤點
 - 已找到並設定本方 fork `Charlie-0926/locwarp` 為 `origin`；目前 `origin/main` 與官方 `upstream/main` 同為 v0.2.190，本機 `custom/main` 含本次稽核文件後多 5 個尚未推送的客製／整合 commits。
 - 完成 `doc/2026-07-15-custom-feature-merge-audit.md`：逐項確認 Spiral、Jump Random Walk、2-opt、多裝置同步／鏡像／接手、Pyright/Mypy 與 async 修正的程式路徑均未在合併中遺失。

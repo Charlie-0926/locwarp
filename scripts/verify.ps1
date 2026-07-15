@@ -16,6 +16,7 @@ function Invoke-Checked {
 
 Push-Location $repoRoot
 try {
+    Invoke-Checked 'Extension boundaries' { powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-extension-boundaries.ps1 }
     Invoke-Checked 'Backend Pyright' { npx.cmd --yes pyright backend }
     Invoke-Checked 'Electron syntax' { node --check frontend/electron/main.js }
 

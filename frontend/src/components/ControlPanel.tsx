@@ -35,6 +35,7 @@ import AddressSearch from './AddressSearch';
 import BookmarkList from './BookmarkList';
 import RouteList, { RouteCategory, SavedRoute } from './RouteList';
 import { SpiralSettingsPanel } from '../extensions/custom/spiral';
+import { JumpRandomWalkControl } from '../extensions/custom/jumpRandomWalk';
 
 interface Position {
   lat: number;
@@ -695,51 +696,15 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                       />
                       <span style={{ opacity: 0.7 }}>{t('panel.jump_delay_seconds')}</span>
                     </span>
-                    <label
-                      className="lw-checkbox"
-                      title={t('panel.jump_random_walk_tooltip')}
-                      style={{ fontSize: 11, padding: 0, background: 'transparent', border: 'none', marginLeft: 10 }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={jumpRandomWalk}
-                        onChange={(e) => onJumpRandomWalkChange?.(e.target.checked)}
-                      />
-                      <span className="lw-checkbox-box"></span>
-                      <span className="lw-checkbox-label" style={{ lineHeight: 1.15 }}>
-                        {t('panel.jump_random_walk')}
-                      </span>
-                    </label>
-                    {jumpRandomWalk && (
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, opacity: 0.85, width: '100%', marginTop: 5 }}>
-                        {t('panel.random_walk_range')}
-                        <input
-                          type="number"
-                          step="1"
-                          min="0"
-                          value={jumpRandomWalkRadius}
-                          onChange={(e) => {
-                            const v = parseFloat(e.target.value)
-                            if (Number.isFinite(v) && v >= 0 && onJumpRandomWalkRadiusChange) onJumpRandomWalkRadiusChange(v)
-                          }}
-                          style={{
-                            width: 60, padding: '2px 6px', fontSize: 11,
-                            background: '#0f1218', color: '#e6e8ee',
-                            border: '1px solid rgba(255,255,255,0.12)', borderRadius: 4,
-                          }}
-                        />
-                        <span style={{ opacity: 0.7 }}>{t('panel.meters_radius')}</span>
-                      </span>
-                    )}
-                    {isRunning && onApplyJumpSettings && (
-                      <button
-                        className="action-btn primary"
-                        style={{ width: '100%', padding: '4px 8px', fontSize: 11, marginTop: 5 }}
-                        onClick={() => onApplyJumpSettings()}
-                      >
-                        {t('panel.apply_speed')}
-                      </button>
-                    )}
+                    <JumpRandomWalkControl
+                      enabled={jumpRandomWalk}
+                      radius={jumpRandomWalkRadius}
+                      running={isRunning}
+                      onEnabledChange={onJumpRandomWalkChange}
+                      onRadiusChange={onJumpRandomWalkRadiusChange}
+                      onApply={onApplyJumpSettings}
+                      t={t}
+                    />
                   </>
                 )}
               </div>

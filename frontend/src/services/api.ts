@@ -295,17 +295,6 @@ export async function lookupWeather(lat: number, lng: number): Promise<{ tempC: 
     return null
   }
 }
-export const routeOptimize = (
-  waypoints: { lat: number; lng: number }[],
-  profile = 'foot',
-  keep_first = true,
-  engine = 'osrm',
-  straightLine = false,
-) =>
-  request<{ waypoints: { lat: number; lng: number }[]; total_distance_m: number; total_duration_s: number; used_estimate?: boolean }>(
-    'POST', '/api/geocode/route-optimize', { waypoints, profile, keep_first, engine, ...(straightLine ? { straight_line: true } : {}) },
-  )
-
 // Bookmarks
 export const getBookmarks = () => request<any>('GET', '/api/bookmarks')
 export const createBookmark = (bm: any) => request<any>('POST', '/api/bookmarks', bm)
@@ -367,13 +356,6 @@ export const applySpeed = (mode: string, opts: { speed_kmh?: number | null; spee
     speed_kmh: opts.speed_kmh ?? null,
     speed_min_kmh: opts.speed_min_kmh ?? null,
     speed_max_kmh: opts.speed_max_kmh ?? null,
-    ...ud(udid),
-  })
-
-export const applyJumpSettings = (jump_random_walk: boolean, jump_random_walk_radius: number, udid?: string) =>
-  request<{ status: string; jump_random_walk: boolean; jump_random_walk_radius: number }>('POST', '/api/location/apply-jump-settings', {
-    jump_random_walk,
-    jump_random_walk_radius,
     ...ud(udid),
   })
 
