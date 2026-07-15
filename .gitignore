@@ -20,6 +20,7 @@ frontend/release/
 frontend/release-tmp/
 frontend/release-tmp*/
 frontend/release-new/
+frontend/release_*.zip
 *.spec.bak
 
 # ── Runtime state ───────────────────────────────────

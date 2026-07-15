@@ -6,6 +6,7 @@ import asyncio
 import logging
 import time
 from datetime import datetime, timedelta, timezone
+from typing import cast
 
 from models.schemas import (
     Coordinate,
@@ -15,6 +16,7 @@ from models.schemas import (
     SimulationStatus,
 )
 from services.interpolator import RouteInterpolator
+from services.location_service import DeviceLostError
 from services.route_service import RouteService
 from config import SPEED_PROFILES, SpeedProfile
 
@@ -26,6 +28,7 @@ from core.multi_stop import MultiStopNavigator
 from core.random_walk import RandomWalkHandler
 from core.restore import RestoreHandler
 from core.goldditto import GoldDittoHandler
+from core.spiral_walk import SpiralWalkHandler
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +110,8 @@ class SimulationEngine:
 
         # Task management
         self._active_task: asyncio.Task | None = None
+        self.jump_random_walk: bool = False
+        self.jump_random_walk_radius: float = 10.0
         self._paused_from: SimulationState | None = None
         self._pause_event = asyncio.Event()
         self._pause_event.set()  # set = running, clear = paused
@@ -123,6 +128,7 @@ class SimulationEngine:
         self._random_walk = RandomWalkHandler(self)
         self._restore_handler = RestoreHandler(self)
         self._goldditto_handler = GoldDittoHandler(self)
+        self._spiral_handler = SpiralWalkHandler(self)
 
         # Status tracking
         self.distance_traveled: float = 0.0
@@ -186,23 +192,35 @@ class SimulationEngine:
         """Run a simulation handler coroutine with uniform cleanup.
         Any exception or cancellation forces the engine back to IDLE and
         notifies the frontend, preventing UI desync after a crash / drop."""
-        self._active_task = asyncio.create_task(coro)
+        my_task = asyncio.create_task(coro)
+        self._active_task = my_task
         try:
-            await self._active_task
+            await my_task
         except asyncio.CancelledError:
             logger.info("%s cancelled", label)
-        except Exception:
+        except Exception as exc:
             logger.exception("%s failed unexpectedly", label)
+            try:
+                await self._emit("simulation_error", {
+                    "message": str(exc) or f"{label} failed unexpectedly",
+                })
+            except Exception:
+                logger.exception("Failed to emit simulation_error after %s", label)
         finally:
-            self._active_task = None
-            # Force state back to IDLE if a handler crashed / was cancelled
-            # mid-flight so the UI doesn't stay stuck showing "navigating".
-            if self.state not in (SimulationState.IDLE, SimulationState.DISCONNECTED):
-                self.state = SimulationState.IDLE
-                try:
-                    await self._emit("state_change", {"state": self.state.value})
-                except Exception:
-                    logger.exception("Failed to emit idle state_change after %s", label)
+            # Only clean up if another handler hasn't already taken over.
+            # Fixes a race condition where quickly pressing Stop then Start
+            # allowed the old handler's finally block to erroneously force
+            # the new handler's state back to IDLE, blanking the UI.
+            if self._active_task is my_task:
+                self._active_task = None
+                # Force state back to IDLE if a handler crashed / was cancelled
+                # mid-flight so the UI doesn't stay stuck showing "navigating".
+                if self.state not in (SimulationState.IDLE, SimulationState.DISCONNECTED):
+                    self.state = SimulationState.IDLE
+                    try:
+                        await self._emit("state_change", {"state": self.state.value})
+                    except Exception:
+                        logger.exception("Failed to emit idle state_change after %s", label)
 
     async def navigate(
         self, dest: Coordinate, mode: MovementMode,
@@ -236,6 +254,7 @@ class SimulationEngine:
         self,
         waypoints: list[Coordinate],
         mode: MovementMode,
+        start_index: int = 0,
         speed_kmh: float | None = None,
         speed_min_kmh: float | None = None,
         speed_max_kmh: float | None = None,
@@ -248,6 +267,8 @@ class SimulationEngine:
         jump_mode: bool = False,
         jump_pre_delay: float = 2.0,
         jump_post_delay: float = 4.0,
+        jump_random_walk: bool = False,
+        jump_random_walk_radius: float = 10.0,
     ) -> None:
         """Start looping through a closed route."""
         await self._ensure_stopped()
@@ -255,21 +276,30 @@ class SimulationEngine:
         self._pause_event.set()
         self._last_sim_kind = "start_loop"
         self._last_sim_args = dict(
-            waypoints=waypoints, mode=mode, speed_kmh=speed_kmh,
+            waypoints=waypoints, mode=mode, start_index=start_index, speed_kmh=speed_kmh,
             speed_min_kmh=speed_min_kmh, speed_max_kmh=speed_max_kmh,
             pause_enabled=pause_enabled, pause_min=pause_min, pause_max=pause_max,
             straight_line=straight_line, route_engine=route_engine,
             lap_count=lap_count,
-            jump_mode=jump_mode, jump_pre_delay=jump_pre_delay, jump_post_delay=jump_post_delay,
+            jump_mode=jump_mode,
+            jump_pre_delay=jump_pre_delay,
+            jump_post_delay=jump_post_delay,
+            jump_random_walk=jump_random_walk,
+            jump_random_walk_radius=jump_random_walk_radius,
         )
         await self._run_handler(
             self._looper.start_loop(
                 waypoints, mode, speed_kmh=speed_kmh,
+                start_index=start_index,
                 speed_min_kmh=speed_min_kmh, speed_max_kmh=speed_max_kmh,
                 pause_enabled=pause_enabled, pause_min=pause_min, pause_max=pause_max,
                 straight_line=straight_line, route_engine=route_engine,
                 lap_count=lap_count,
-                jump_mode=jump_mode, jump_pre_delay=jump_pre_delay, jump_post_delay=jump_post_delay,
+                jump_mode=jump_mode,
+                jump_pre_delay=jump_pre_delay,
+                jump_post_delay=jump_post_delay,
+                jump_random_walk=jump_random_walk,
+                jump_random_walk_radius=jump_random_walk_radius,
             ),
             "Loop",
         )
@@ -295,6 +325,7 @@ class SimulationEngine:
         mode: MovementMode,
         stop_duration: float = 0,
         loop: bool = False,
+        start_index: int = 0,
         speed_kmh: float | None = None,
         speed_min_kmh: float | None = None,
         speed_max_kmh: float | None = None,
@@ -306,6 +337,8 @@ class SimulationEngine:
         jump_mode: bool = False,
         jump_pre_delay: float = 2.0,
         jump_post_delay: float = 4.0,
+        jump_random_walk: bool = False,
+        jump_random_walk_radius: float = 10.0,
     ) -> None:
         """Navigate through waypoints with optional stops."""
         await self._ensure_stopped()
@@ -314,18 +347,28 @@ class SimulationEngine:
         self._last_sim_kind = "multi_stop"
         self._last_sim_args = dict(
             waypoints=waypoints, mode=mode, stop_duration=stop_duration, loop=loop,
+            start_index=start_index,
             speed_kmh=speed_kmh, speed_min_kmh=speed_min_kmh, speed_max_kmh=speed_max_kmh,
             pause_enabled=pause_enabled, pause_min=pause_min, pause_max=pause_max,
             straight_line=straight_line, route_engine=route_engine,
-            jump_mode=jump_mode, jump_pre_delay=jump_pre_delay, jump_post_delay=jump_post_delay,
+            jump_mode=jump_mode,
+            jump_pre_delay=jump_pre_delay,
+            jump_post_delay=jump_post_delay,
+            jump_random_walk=jump_random_walk,
+            jump_random_walk_radius=jump_random_walk_radius,
         )
         await self._run_handler(
             self._multi_stop.start(
                 waypoints, mode, stop_duration, loop, speed_kmh=speed_kmh,
                 speed_min_kmh=speed_min_kmh, speed_max_kmh=speed_max_kmh,
+                start_index=start_index,
                 pause_enabled=pause_enabled, pause_min=pause_min, pause_max=pause_max,
                 straight_line=straight_line, route_engine=route_engine,
-                jump_mode=jump_mode, jump_pre_delay=jump_pre_delay, jump_post_delay=jump_post_delay,
+                jump_mode=jump_mode,
+                jump_pre_delay=jump_pre_delay,
+                jump_post_delay=jump_post_delay,
+                jump_random_walk=jump_random_walk,
+                jump_random_walk_radius=jump_random_walk_radius,
             ),
             "Multi-stop",
         )
@@ -378,6 +421,38 @@ class SimulationEngine:
                 forward_turn_deg=forward_turn_deg,
             ),
             "Random walk",
+        )
+
+    async def start_spiral(
+        self,
+        center: Coordinate,
+        radius_m: float,
+        spacing_m: float,
+        mode: MovementMode,
+        speed_kmh: float | None = None,
+        speed_min_kmh: float | None = None,
+        speed_max_kmh: float | None = None,
+        straight_line: bool = True,
+        route_engine: str | None = None,
+    ) -> None:
+        """Begin a spiral walk."""
+        await self._ensure_stopped()
+        self._stop_event.clear()
+        self._pause_event.set()
+        self._last_sim_kind = "start_spiral"
+        self._last_sim_args = dict(
+            center=center, radius_m=radius_m, spacing_m=spacing_m, mode=mode,
+            speed_kmh=speed_kmh, speed_min_kmh=speed_min_kmh, speed_max_kmh=speed_max_kmh,
+            straight_line=straight_line, route_engine=route_engine,
+        )
+        await self._run_handler(
+            self._spiral_handler.start(
+                center, radius_m, spacing_m, mode,
+                speed_kmh=speed_kmh,
+                speed_min_kmh=speed_min_kmh, speed_max_kmh=speed_max_kmh,
+                straight_line=straight_line, route_engine=route_engine,
+            ),
+            "Spiral walk",
         )
 
     async def pause(self) -> None:
@@ -593,6 +668,7 @@ class SimulationEngine:
             SimulationState.LOOPING,
             SimulationState.MULTI_STOP,
             SimulationState.RANDOM_WALK,
+            SimulationState.SPIRAL,
         ):
             return None
         if not self._last_sim_kind or not self._last_sim_args:
@@ -643,7 +719,7 @@ class SimulationEngine:
         # spec'd profile from the request.
         self._speed_was_applied = bool(snap.get("speed_was_applied", False))
         if "active_speed_profile" in snap:
-            self._active_speed_profile = dict(snap["active_speed_profile"])
+            self._active_speed_profile = cast(SpeedProfile, dict(snap["active_speed_profile"]))
 
         self._resume_snapshot = snap
 
@@ -714,26 +790,50 @@ class SimulationEngine:
         """Hot-swap the active speed profile. Works in two modes:
 
         * Route-based handlers (navigate / loop / multi-stop / random-walk):
-          queue the profile; the running ``_move_along_route`` loop notices
-          and re-interpolates the remaining coords from the current position.
+          save the profile immediately; when a leg is active, the running
+          ``_move_along_route`` loop notices and re-interpolates the remaining
+          coords from the current position. When the handler is between legs,
+          the next leg consumes the saved profile.
         * Joystick mode: swap the joystick handler's own speed_profile so
           the next tick computes distance with the new value.
 
         Returns True if the change was queued/applied, False if nothing is
         running to apply it to.
         """
-        if self.state in (SimulationState.IDLE, SimulationState.DISCONNECTED):
-            return False
         # Joystick uses its own independent speed profile attribute.
         if self.state == SimulationState.JOYSTICK and self._joystick.is_active:
-            self._joystick.speed_profile = dict(speed_profile)
+            self._joystick.speed_profile = cast(SpeedProfile, dict(speed_profile))
             self._speed_was_applied = True
             return True
-        if not self._active_route_coords:
+
+        route_states = (
+            SimulationState.NAVIGATING,
+            SimulationState.LOOPING,
+            SimulationState.MULTI_STOP,
+            SimulationState.RANDOM_WALK,
+            SimulationState.SPIRAL,
+        )
+        is_route_state = self.state in route_states or (
+            self.state == SimulationState.PAUSED
+            and self._paused_from in route_states
+        )
+        if not is_route_state:
             return False
-        self._pending_speed_profile = dict(speed_profile)
+
+        # Save the new profile immediately. During a stop countdown or while
+        # the next leg is being routed, _active_route_coords is empty and
+        # there is no _move_along_route loop available to consume a pending
+        # profile yet. Keeping it active here lets the next leg pick it up.
+        applied_profile = cast(SpeedProfile, dict(speed_profile))
+        self._active_speed_profile = applied_profile
+        self._pending_speed_profile = applied_profile if self._active_route_coords else None
         self._speed_was_applied = True
         return True
+
+    def apply_jump_settings(self, enabled: bool, radius: float) -> None:
+        """Hot-swap jump mode random walk settings."""
+        self.jump_random_walk = enabled
+        self.jump_random_walk_radius = radius
 
     async def _move_along_route(
         self,
@@ -758,13 +858,22 @@ class SimulationEngine:
         # Expose these as instance state so apply_speed can read/swap them
         # mid-flight without racing the handler's local variables.
         self._active_route_coords = list(coords)
-        self._active_speed_profile = dict(speed_profile)
+        # An apply-speed request may arrive after the caller selected the
+        # profile but before this new leg starts (for example during a stop
+        # countdown or while route service is calculating the next leg).
+        # Preserve that newer profile instead of overwriting it with the
+        # caller's stale argument.
+        if not self._speed_was_applied or self._active_speed_profile is None:
+            self._active_speed_profile = cast(SpeedProfile, dict(speed_profile))
         self._pending_speed_profile = None
         self.total_segments = max(len(coords) - 1, 0)
 
         # Outer loop: each iteration plans a fresh interpolation of the
         # remaining route. Re-entered on apply_speed to absorb a new speed.
         planned_coords = self._active_route_coords
+
+        wp_seg_idx: list[int] = []
+        wp_hit_ptr = 0
 
         # Waypoint-progress detection runs against the user's named
         # waypoints (set by the calling handler), not the OSRM-densified
@@ -795,9 +904,12 @@ class SimulationEngine:
             })
 
         while True:
-            speed_mps = self._active_speed_profile["speed_mps"]
-            jitter = self._active_speed_profile.get("jitter", 0.3)
-            update_interval = self._active_speed_profile.get("update_interval", 1.0)
+            active_profile = self._active_speed_profile
+            if active_profile is None:
+                break
+            speed_mps = active_profile["speed_mps"]
+            jitter = active_profile.get("jitter", 0.3)
+            update_interval = active_profile.get("update_interval", 1.0)
 
             self._current_speed_mps = speed_mps
 
@@ -824,7 +936,7 @@ class SimulationEngine:
             # a waypoint can't be matched further along than the previous
             # one, meaning it belongs to a later leg (multi_stop) or isn't
             # on this planned_coords at all.
-            wp_seg_idx: list[int] = []
+            wp_seg_idx = []
             last_ci = -1
             for wi in range(self._user_waypoint_next, len(user_wps)):
                 wp = user_wps[wi]
@@ -839,6 +951,10 @@ class SimulationEngine:
                     if d < best_d:
                         best_d = d
                         best_ci = ci
+                        # Early exit: if we found a point within 1 meter, it's a direct match.
+                        # Prevents O(N^2) lockup when processing tens of thousands of points.
+                        if d < 1.0:
+                            break
                 if best_ci < 0:
                     break
                 wp_seg_idx.append(best_ci)
@@ -894,11 +1010,15 @@ class SimulationEngine:
                         await self._set_position(jittered_lat, jittered_lng)
                         pushed = True
                         break
-                    except (ConnectionError, OSError) as exc:
+                    except (ConnectionError, OSError, asyncio.TimeoutError) as exc:
                         logger.warning(
                             "position push failed (attempt %d/3): %s", attempt + 1, exc,
                         )
                         await asyncio.sleep(0.5 * (attempt + 1))
+                    except DeviceLostError:
+                        logger.exception("Device lost while pushing position")
+                        self._stop_event.set()
+                        raise
                     except asyncio.CancelledError:
                         raise
                     except Exception:
@@ -906,7 +1026,8 @@ class SimulationEngine:
                         break
                 if not pushed:
                     logger.error("Giving up on this route after repeated push failures")
-                    break
+                    self._stop_event.set()
+                    raise RuntimeError("Position push failed repeatedly; route stopped")
 
                 # Update tracking
                 self.distance_traveled += step_dist

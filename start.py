@@ -11,6 +11,7 @@ import shutil
 import webbrowser
 import urllib.request
 import socket
+import atexit
 
 # 路徑設定
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -21,6 +22,18 @@ BACKEND_PORT = 8777
 FRONTEND_PORT = 5173
 
 procs = []
+launcher_lock = None
+
+# Import from backend without importing the ``core`` package. ``core``
+# eagerly imports device dependencies, while the launcher still needs to
+# install those dependencies later in startup.
+sys.path.insert(0, BACKEND)
+from instance_lock import SingleInstanceLock
+
+
+def release_launcher_lock():
+    if launcher_lock is not None:
+        launcher_lock.release()
 
 
 def print_banner():
@@ -81,20 +94,12 @@ def install_backend():
     print("  [1/4] 檢查後端依賴...", end=" ", flush=True)
     req = os.path.join(BACKEND, "requirements.txt")
 
-    dry = subprocess.run(
-        [sys.executable, "-m", "pip", "install", "-r", req, "--dry-run", "-q"],
-        capture_output=True, text=True,
+    print("安裝中...")
+    subprocess.run(
+        [sys.executable, "-m", "pip", "install", "-r", req, "-q"],
+        cwd=BACKEND,
     )
-
-    if "would install" not in dry.stdout.lower():
-        print("已就緒 ✓")
-    else:
-        print("安裝中...")
-        subprocess.run(
-            [sys.executable, "-m", "pip", "install", "-r", req, "-q"],
-            cwd=BACKEND,
-        )
-        print("        完成 ✓")
+    print("        完成 ✓")
 
 
 def install_frontend():
@@ -173,6 +178,14 @@ def check_admin():
 
 
 def main():
+    global launcher_lock
+    launcher_lock = SingleInstanceLock("LocWarp.DevLauncher")
+    if not launcher_lock.acquire():
+        print("LocWarp 已經在執行中，這次啟動已取消。")
+        print("請使用目前已開啟的 LocWarp 視窗。")
+        return
+    atexit.register(release_launcher_lock)
+
     os.system("title LocWarp")
     print_banner()
 

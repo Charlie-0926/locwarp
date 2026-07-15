@@ -59,8 +59,12 @@ class RecentPlacesManager:
     @staticmethod
     def _valid(entry: dict) -> bool:
         try:
-            lat = float(entry.get("lat"))
-            lng = float(entry.get("lng"))
+            lat_val = entry.get("lat")
+            lng_val = entry.get("lng")
+            if lat_val is None or lng_val is None:
+                return False
+            lat = float(lat_val)
+            lng = float(lng_val)
             if not (-90 <= lat <= 90 and -180 <= lng <= 180):
                 return False
             if entry.get("kind") not in _VALID_KINDS:

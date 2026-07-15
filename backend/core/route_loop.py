@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
+import random
 import random
 
 from models.schemas import Coordinate, MovementMode, SimulationState
-from config import resolve_speed_profile
+from config import resolve_speed_profile, SpeedProfile
 from core.multi_stop import jump_wait
 
 logger = logging.getLogger(__name__)
@@ -24,6 +26,7 @@ class RouteLooper:
         waypoints: list[Coordinate],
         mode: MovementMode,
         *,
+        start_index: int = 0,
         speed_kmh: float | None = None,
         speed_min_kmh: float | None = None,
         speed_max_kmh: float | None = None,
@@ -36,6 +39,8 @@ class RouteLooper:
         jump_mode: bool = False,
         jump_pre_delay: float = 2.0,
         jump_post_delay: float = 4.0,
+        jump_random_walk: bool = False,
+        jump_random_walk_radius: float = 10.0,
     ) -> None:
         """Build a multi-waypoint route that forms a closed loop, then
         traverse it repeatedly until stopped.
@@ -53,11 +58,15 @@ class RouteLooper:
         if len(waypoints) < 2:
             raise ValueError("At least 2 waypoints are required for a loop")
 
+        requested_start_index = max(0, min(int(start_index or 0), len(waypoints) - 1))
+
         # Jump mode: teleport point-to-point with configurable pre / post
         # delays instead of walking. Skips OSRM routing entirely. Resume /
         # per-station random pause / speed profile are not used in this
         # mode because there's no continuous movement to interpolate.
         if jump_mode:
+            engine.jump_random_walk = jump_random_walk
+            engine.jump_random_walk_radius = jump_random_walk_radius
             await _run_jump_loop(
                 engine,
                 waypoints,
@@ -65,13 +74,16 @@ class RouteLooper:
                 post_delay=max(0.0, float(jump_post_delay)),
                 lap_count=lap_count,
                 close_loop=True,
+                start_index=requested_start_index,
             )
             return
 
         profile_name = mode.value
         osrm_profile = "foot" if mode in (MovementMode.WALKING, MovementMode.RUNNING) else "car"
 
-        # Close the loop: append the first waypoint at the end
+        # Normal closed loop. start_index is only a first-pass offset: after
+        # the initial partial run reaches the end, following laps use the
+        # complete original route from waypoint 0.
         closed_waypoints = list(waypoints) + [waypoints[0]]
 
         # Build OSRM route through all waypoints
@@ -113,21 +125,41 @@ class RouteLooper:
         await engine._emit("state_change", {
             "state": engine.state.value,
             "waypoints": [{"lat": wp.lat, "lng": wp.lng} for wp in waypoints],
+            "start_index": requested_start_index,
         })
 
-        logger.info("Starting route loop with %d waypoints [%s]%s",
-                    len(waypoints), profile_name,
+        logger.info("Starting route loop with %d waypoints, start=%d [%s]%s",
+                    len(waypoints), requested_start_index, profile_name,
                     f" (resuming at segment {resume_seg}, lap {engine.lap_count})" if resume_snap else "")
 
         # Helper that re-picks the speed profile per lap. If the user applied
         # a speed mid-flight, that takes precedence; otherwise re-resolve from
         # the original args (so range mode produces per-lap variation).
-        def _pick_profile() -> dict:
+        def _pick_profile() -> SpeedProfile:
             if engine._speed_was_applied and engine._active_speed_profile is not None:
-                return dict(engine._active_speed_profile)
+                return engine._active_speed_profile
             return resolve_speed_profile(
                 profile_name, speed_kmh, speed_min_kmh, speed_max_kmh,
             )
+
+        engine._user_waypoints = []
+        engine._user_waypoint_next = 0
+        if not resume_snap and engine.current_position is not None:
+            first = waypoints[requested_start_index]
+            start_dist = self._quick_distance(engine.current_position, first)
+            if start_dist > 50:
+                route_to_start = await engine.route_service.get_route(
+                    engine.current_position.lat, engine.current_position.lng,
+                    first.lat, first.lng,
+                    profile=osrm_profile,
+                    force_straight=straight_line,
+                    engine=route_engine,
+                )
+                start_coords = [Coordinate(lat=pt[0], lng=pt[1]) for pt in route_to_start["coords"]]
+                if len(start_coords) >= 2:
+                    await engine._move_along_route(start_coords, _pick_profile())
+                    if engine._stop_event.is_set():
+                        return
 
         # Per-station pause sampler. Returns a non-negative duration; 0 means
         # "skip the pause entirely".
@@ -172,13 +204,20 @@ class RouteLooper:
         while not engine._stop_event.is_set():
             engine.distance_traveled = 0.0
             engine.distance_remaining = route_data["distance"]
-            engine.segment_index = 0
+            engine.segment_index = requested_start_index if first_iteration else 0
 
             engine._user_waypoints = list(waypoints)
-            engine._user_waypoint_next = (
-                resume_uwn if first_iteration else (1 if len(waypoints) > 1 else 0)
-            )
+            if first_iteration and resume_snap:
+                engine._user_waypoint_next = resume_uwn
+            elif first_iteration and requested_start_index > 0:
+                engine._user_waypoint_next = min(requested_start_index + 1, len(waypoints))
+            else:
+                engine._user_waypoint_next = 1 if len(waypoints) > 1 else 0
 
+            # Keep the original profile for the whole lap when the user has
+            # not hot-swapped speed (important for random-range mode). Once a
+            # new speed is applied, the engine's active profile becomes the
+            # source of truth for every later leg and lap.
             speed_profile = _pick_profile()
 
             # Tracks meters already walked this lap so we can compute the
@@ -193,11 +232,14 @@ class RouteLooper:
             # represents a leg index rather than the old densified-coord
             # index since we walk leg-by-leg).
             num_legs = len(closed_waypoints) - 1
-            leg_start = resume_seg if (first_iteration and resume_snap) else 0
+            leg_start = resume_seg if (first_iteration and resume_snap) else (requested_start_index if first_iteration else 0)
             leg_start = max(0, min(leg_start, num_legs - 1))
             for leg_idx in range(leg_start, num_legs):
                 if engine._stop_event.is_set():
                     break
+
+                if engine._speed_was_applied and engine._active_speed_profile is not None:
+                    speed_profile = engine._active_speed_profile
 
                 wp_a = closed_waypoints[leg_idx]
                 wp_b = closed_waypoints[leg_idx + 1]
@@ -245,6 +287,13 @@ class RouteLooper:
                 if engine._stop_event.is_set():
                     break
 
+                if leg_idx == num_legs - 1:
+                    await engine._emit("waypoint_progress", {
+                        "current_index": 0,
+                        "next_index": 1 if len(waypoints) > 1 else 0,
+                        "total": len(waypoints),
+                    })
+
                 # Pause at every stop except the last one of the lap (the
                 # closing leg lands back on waypoints[0], which becomes the
                 # start of the next lap — no double-pause needed).
@@ -291,6 +340,13 @@ class RouteLooper:
 
         logger.info("Route loop stopped after %d laps", engine.lap_count)
 
+    @staticmethod
+    def _quick_distance(a: Coordinate, b: Coordinate) -> float:
+        """Rough distance in meters (good enough for threshold checks)."""
+        dlat = math.radians(b.lat - a.lat)
+        dlng = math.radians(b.lng - a.lng) * math.cos(math.radians(a.lat))
+        return 6_371_000 * math.sqrt(dlat ** 2 + dlng ** 2)
+
 
 async def _run_jump_loop(
     engine,
@@ -300,6 +356,7 @@ async def _run_jump_loop(
     post_delay: float,
     lap_count: int | None,
     close_loop: bool,
+    start_index: int = 0,
 ) -> None:
     """Teleport sequentially through *waypoints*. Each stop is preceded by
     *pre_delay* seconds and followed by *post_delay* seconds. When
@@ -309,11 +366,12 @@ async def _run_jump_loop(
     engine.state = SimulationState.LOOPING
     engine.total_segments = len(waypoints)
     engine.lap_count = 0
-    engine.segment_index = 0
+    start_index = max(0, min(int(start_index or 0), len(waypoints) - 1))
+    engine.segment_index = start_index
     engine.distance_traveled = 0.0
     engine.distance_remaining = 0.0
-    engine._user_waypoints = list(waypoints)
-    engine._user_waypoint_next = 1 if len(waypoints) > 1 else 0
+    engine._user_waypoints = []
+    engine._user_waypoint_next = 0
 
     await engine._emit("route_path", {
         "coords": [{"lat": wp.lat, "lng": wp.lng} for wp in waypoints],
@@ -321,6 +379,7 @@ async def _run_jump_loop(
     await engine._emit("state_change", {
         "state": engine.state.value,
         "waypoints": [{"lat": wp.lat, "lng": wp.lng} for wp in waypoints],
+        "start_index": start_index,
     })
 
     logger.info(
@@ -330,35 +389,58 @@ async def _run_jump_loop(
 
     limit = lap_count if (lap_count is not None and lap_count > 0) else None
 
+    first_iteration = True
     while not engine._stop_event.is_set():
-        for i, wp in enumerate(waypoints):
+        run_start = start_index if first_iteration else 0
+        for order_idx, original_i in enumerate(range(run_start, len(waypoints))):
+            wp = waypoints[original_i]
+            original_next = min(original_i + 1, len(waypoints) - 1)
             if engine._stop_event.is_set():
                 break
-            if await jump_wait(engine, pre_delay, source="loop"):
+
+            if await jump_wait(
+                engine, pre_delay, source="loop",
+                base_wp=wp, index=order_idx, total_waypoints=len(waypoints),
+                do_random_walk=False, pre_delay=pre_delay, post_delay=post_delay,
+                is_pre_delay=True
+            ):
                 break
             if engine._stop_event.is_set():
                 break
+
             await engine._set_position(wp.lat, wp.lng)
-            engine.segment_index = i
-            engine._user_waypoint_next = min(i + 1, len(waypoints))
+            engine.segment_index = original_i
+            engine._user_waypoint_next = order_idx + 1
+            eta_secs = (len(waypoints) - 1 - order_idx) * (pre_delay + post_delay) + post_delay
             await engine._emit("position_update", {
                 "lat": wp.lat, "lng": wp.lng,
                 "speed_mps": 0.0,
-                "progress": (i + 1) / max(len(waypoints), 1),
-                "segment_index": i,
+                "progress": (order_idx + 1) / max(len(waypoints), 1),
+                "segment_index": original_i,
                 "total_segments": len(waypoints),
                 "lap_count": engine.lap_count,
                 "distance_traveled": 0.0,
                 "distance_remaining": 0.0,
-                "eta_seconds": 0.0,
+                "eta_seconds": eta_secs,
                 "eta_arrival": "",
                 "is_paused": False,
             })
             await engine._emit("user_waypoint_advance", {
-                "current_index": i,
-                "next_index": min(i + 1, len(waypoints) - 1),
+                "current_index": original_i,
+                "next_index": original_next,
             })
-            if await jump_wait(engine, post_delay, source="loop"):
+            await engine._emit("waypoint_progress", {
+                "current_index": original_i,
+                "next_index": original_next,
+                "total": len(waypoints),
+            })
+            if await jump_wait(
+                engine, post_delay, source="loop",
+                base_wp=wp, index=order_idx, total_waypoints=len(waypoints),
+                do_random_walk=getattr(engine, "jump_random_walk", False),
+                pre_delay=pre_delay, post_delay=post_delay,
+                is_pre_delay=False
+            ):
                 break
 
         if engine._stop_event.is_set():
@@ -368,6 +450,16 @@ async def _run_jump_loop(
         # path closes (only relevant for the closed-loop mode).
         if close_loop and not engine._stop_event.is_set():
             wp0 = waypoints[0]
+            if await jump_wait(
+                engine, pre_delay, source="loop",
+                base_wp=wp0, index=0, total_waypoints=len(waypoints),
+                do_random_walk=False, pre_delay=pre_delay, post_delay=post_delay,
+                is_pre_delay=True
+            ):
+                break
+            if engine._stop_event.is_set():
+                break
+
             await engine._set_position(wp0.lat, wp0.lng)
             await engine._emit("position_update", {
                 "lat": wp0.lat, "lng": wp0.lng,
@@ -377,7 +469,13 @@ async def _run_jump_loop(
                 "distance_traveled": 0.0, "distance_remaining": 0.0,
                 "eta_seconds": 0.0, "eta_arrival": "", "is_paused": False,
             })
+            await engine._emit("waypoint_progress", {
+                "current_index": 0,
+                "next_index": 1 if len(waypoints) > 1 else 0,
+                "total": len(waypoints),
+            })
 
+        first_iteration = False
         engine.lap_count += 1
         await engine._emit("lap_complete", {
             "lap": engine.lap_count, "total": limit,

@@ -5,6 +5,14 @@ const http = require('http')
 const os = require('os')
 const fs = require('fs')
 
+// Only one desktop shell may own the shared backend and device connection.
+// Without this guard, launching the installer twice creates two renderers
+// competing for the same iPhone and two backend processes competing for 8777.
+const gotSingleInstanceLock = app.requestSingleInstanceLock()
+if (!gotSingleInstanceLock) {
+  app.quit()
+}
+
 // Render-mode preference (Issue #24). Win 10 stays on software rendering
 // by default — v0.2.121/125 hit a Chromium 124 GPU-sandbox crash on
 // 22H2 — but users whose hardware works fine can opt in via Settings
@@ -337,10 +345,19 @@ async function createWindow() {
   }
 }
 
-app.whenReady().then(createWindow)
-app.on('window-all-closed', () => {
-  stopBackend()
-  if (process.platform !== 'darwin') app.quit()
-})
-app.on('before-quit', stopBackend)
-app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
+if (gotSingleInstanceLock) {
+  app.on('second-instance', () => {
+    if (!mainWindow) return
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.show()
+    mainWindow.focus()
+  })
+
+  app.whenReady().then(createWindow)
+  app.on('window-all-closed', () => {
+    stopBackend()
+    if (process.platform !== 'darwin') app.quit()
+  })
+  app.on('before-quit', stopBackend)
+  app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
+}

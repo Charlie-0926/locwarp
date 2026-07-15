@@ -16,6 +16,7 @@ from services.bookmarks import BookmarkManager
 from services.route_store import RouteManager
 from services.coord_format import CoordinateFormatter
 from services.reconnect import ReconnectManager
+from instance_lock import SingleInstanceLock
 
 # Configure logging — console + rotating file in ~/.locwarp/logs/
 _log_fmt = "%(asctime)s [%(name)s] %(levelname)s: %(message)s"
@@ -30,7 +31,7 @@ try:
     )
     _file_handler.setFormatter(logging.Formatter(_log_fmt))
     _file_handler.setLevel(logging.INFO)
-    _handlers = [logging.StreamHandler(), _file_handler]
+    _handlers: list[logging.Handler] = [logging.StreamHandler(), _file_handler]
 except Exception:
     _handlers = [logging.StreamHandler()]
 logging.basicConfig(level=logging.INFO, format=_log_fmt, handlers=_handlers, force=True)
@@ -268,11 +269,33 @@ async def _auto_sync_new_device_to_primary(new_udid: str) -> None:
         SimulationState.LOOPING,
         SimulationState.MULTI_STOP,
         SimulationState.RANDOM_WALK,
+        SimulationState.SPIRAL,
     }
-    if primary_eng.state not in dynamic:
+    
+    primary_state = primary_eng.state
+    if primary_state == SimulationState.PAUSED:
+        primary_state = getattr(primary_eng, "_paused_from", SimulationState.IDLE)
+        
+    if primary_state not in dynamic:
         return
 
     logger.info("Auto-sync: attaching %s as position-follower of primary %s", new_udid, primary_udid)
+    
+    # Mirror the state to the follower so its UI doesn't look dead (IDLE)
+    new_eng.state = primary_eng.state
+    new_eng._paused_from = getattr(primary_eng, "_paused_from", None)
+    if getattr(primary_eng, "_last_route_path", None):
+        new_eng._last_route_path = list(primary_eng._last_route_path)
+    
+    async def _emit_initial_state():
+        try:
+            await new_eng._emit("state_change", {"state": new_eng.state.value})
+            if new_eng._last_route_path:
+                await new_eng._emit("route_path", {"coords": new_eng._last_route_path})
+        except Exception:
+            pass
+    asyncio.create_task(_emit_initial_state())
+
     asyncio.create_task(_follow_primary_positions(new_udid, primary_udid))
 
 
@@ -309,9 +332,76 @@ async def _follow_primary_positions(follower_udid: str, primary_udid: str) -> No
             try:
                 await follower_eng._set_position(pos.lat, pos.lng)
                 last_pushed_lat, last_pushed_lng = pos.lat, pos.lng
+                
+                # Emit WebSocket update so the follower's map pin moves in UI
+                await follower_eng._emit("position_update", {"lat": pos.lat, "lng": pos.lng})
+                
+                # Mirror status fields so /api/status (UI polling) shows matching ETA/progress
+                follower_eng.distance_traveled = primary_eng.distance_traveled
+                follower_eng.distance_remaining = primary_eng.distance_remaining
+                follower_eng.lap_count = primary_eng.lap_count
+                follower_eng.segment_index = primary_eng.segment_index
+                follower_eng.total_segments = primary_eng.total_segments
+                follower_eng._current_speed_mps = primary_eng._current_speed_mps
+                
+                follower_eng.eta_tracker.distance_remaining = primary_eng.eta_tracker.distance_remaining
+                follower_eng.eta_tracker.eta_seconds = primary_eng.eta_tracker.eta_seconds
+                follower_eng.eta_tracker.eta_arrival = primary_eng.eta_tracker.eta_arrival
+                follower_eng.eta_tracker.progress = primary_eng.eta_tracker.progress
             except Exception:
                 logger.debug("Follower %s: _set_position failed", follower_udid, exc_info=True)
+                
+        # Keep follower state aligned with primary (e.g. if primary is Paused/Resumed)
+        if follower_eng.state != primary_eng.state:
+            follower_eng.state = primary_eng.state
+            follower_eng._paused_from = getattr(primary_eng, "_paused_from", None)
+            asyncio.create_task(follower_eng._emit("state_change", {"state": follower_eng.state.value}))
+            
         await asyncio.sleep(poll_interval)
+
+
+async def _wifi_tunnel_keepalive():
+    """Keep idle WiFi tunnels alive across phone screen-off.
+
+    During active navigation the engine pushes coordinates every cycle,
+    which is exactly why a moving WiFi tunnel survives the screen turning
+    off while an idle one drops within seconds. This loop mirrors that
+    traffic: every KEEPALIVE_INTERVAL it re-pushes the current simulated
+    location for each Network-connected device whose engine is idle. The
+    re-push doubles as keeping the fake location pinned. Active sims are
+    skipped (they already generate traffic). Toggleable via settings —
+    issue #33."""
+    import asyncio
+    from models.schemas import SimulationState
+    KEEPALIVE_INTERVAL = 1.0
+    # States where the engine is NOT actively pushing on its own, so the
+    # socket would otherwise go quiet and iOS could reap it.
+    IDLE_STATES = {SimulationState.IDLE, SimulationState.PAUSED}
+    while True:
+        try:
+            await asyncio.sleep(KEEPALIVE_INTERVAL)
+            if not app_state._wifi_keepalive_enabled:
+                continue
+            dm = app_state.device_manager
+            for udid, conn in list(dm._connections.items()):
+                if getattr(conn, "connection_type", "USB") != "Network":
+                    continue
+                eng = app_state.simulation_engines.get(udid)
+                if eng is None or eng.state not in IDLE_STATES:
+                    continue
+                pos = eng.current_position
+                if pos is None:
+                    continue
+                try:
+                    await eng.location_service.set(pos.lat, pos.lng)
+                except Exception:
+                    logger.debug(
+                        "WiFi keepalive re-push failed for %s", udid, exc_info=True,
+                    )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.debug("WiFi keepalive loop iteration error", exc_info=True)
 
 
 async def _usbmux_presence_watchdog():
@@ -332,7 +422,7 @@ async def _usbmux_presence_watchdog():
     """
     import asyncio
     import time
-    from pymobiledevice3.usbmux import list_devices
+    from pymobiledevice3.usbmux import list_devices  # type: ignore[import-untyped]
     from api.websocket import broadcast
 
     miss_counts: dict[str, int] = {}
@@ -598,50 +688,6 @@ async def _usbmux_presence_watchdog():
             logger.exception("usbmux watchdog iteration crashed; continuing")
 
 
-async def _wifi_tunnel_keepalive():
-    """Keep idle WiFi tunnels alive across phone screen-off.
-
-    During active navigation the engine pushes coordinates every cycle,
-    which is exactly why a moving WiFi tunnel survives the screen turning
-    off while an idle one drops within seconds. This loop mirrors that
-    traffic: every KEEPALIVE_INTERVAL it re-pushes the current simulated
-    location for each Network-connected device whose engine is idle. The
-    re-push doubles as keeping the fake location pinned. Active sims are
-    skipped (they already generate traffic). Toggleable via settings —
-    issue #33."""
-    import asyncio
-    from models.schemas import SimulationState
-    KEEPALIVE_INTERVAL = 1.0
-    # States where the engine is NOT actively pushing on its own, so the
-    # socket would otherwise go quiet and iOS could reap it.
-    IDLE_STATES = {SimulationState.IDLE, SimulationState.PAUSED}
-    while True:
-        try:
-            await asyncio.sleep(KEEPALIVE_INTERVAL)
-            if not app_state._wifi_keepalive_enabled:
-                continue
-            dm = app_state.device_manager
-            for udid, conn in list(dm._connections.items()):
-                if getattr(conn, "connection_type", "USB") != "Network":
-                    continue
-                eng = app_state.simulation_engines.get(udid)
-                if eng is None or eng.state not in IDLE_STATES:
-                    continue
-                pos = eng.current_position
-                if pos is None:
-                    continue
-                try:
-                    await eng.location_service.set(pos.lat, pos.lng)
-                except Exception:
-                    logger.debug(
-                        "WiFi keepalive re-push failed for %s", udid, exc_info=True,
-                    )
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.debug("WiFi keepalive loop iteration error", exc_info=True)
-
-
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     import asyncio
@@ -725,6 +771,13 @@ async def root():
 
 
 if __name__ == "__main__":
+    backend_lock = SingleInstanceLock("LocWarp.Backend")
+    if not backend_lock.acquire():
+        logger.error(
+            "Another LocWarp backend instance is already running on port %s; exiting.",
+            API_PORT,
+        )
+        raise SystemExit(1)
     # v0.2.59: enable uvicorn access logging so we can see which HTTP
     # endpoints the frontend is hitting (needed to debug the "WiFi tunnel
     # drops on USB unplug" report — we need to confirm whether the UI is
@@ -733,4 +786,7 @@ if __name__ == "__main__":
     uvicorn_access = logging.getLogger("uvicorn.access")
     uvicorn_access.setLevel(logging.INFO)
     uvicorn_access.propagate = True  # route through our basicConfig handlers
-    uvicorn.run("main:app", host=API_HOST, port=API_PORT, reload=False, access_log=True)
+    try:
+        uvicorn.run("main:app", host=API_HOST, port=API_PORT, reload=False, access_log=True)
+    finally:
+        backend_lock.release()

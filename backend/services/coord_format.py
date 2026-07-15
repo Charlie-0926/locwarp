@@ -41,8 +41,8 @@ class CoordinateFormatter:
             return f"{d}\u00b0{m}'{s:.2f}\"{suffix}"
 
         if self.format == CoordinateFormat.DM:
-            d, m = self._dd_to_dm(deg)
-            return f"{d}\u00b0{m:.4f}'{suffix}"
+            dm_d, dm_m = self._dd_to_dm(deg)
+            return f"{dm_d}\u00b0{dm_m:.4f}'{suffix}"
 
         return f"{deg:.6f}\u00b0{suffix}"
 

@@ -170,20 +170,30 @@ const pp = (o?: PauseOpts) => (o ? {
 } : {})
 const sl = (v?: boolean) => (v ? { straight_line: true } : {})
 const re = (v?: string | null) => (v ? { route_engine: v } : {})
-export type JumpOpts = { jump_mode?: boolean; jump_pre_delay?: number; jump_post_delay?: number }
+export type JumpOpts = {
+  jump_mode?: boolean;
+  jump_pre_delay?: number;
+  jump_post_delay?: number;
+  jump_random_walk?: boolean;
+  jump_random_walk_radius?: number;
+}
 const jm = (o?: JumpOpts) => (o?.jump_mode ? {
   jump_mode: true,
   jump_pre_delay: o.jump_pre_delay ?? 2,
   jump_post_delay: o.jump_post_delay ?? 4,
+  jump_random_walk: o.jump_random_walk ?? false,
+  jump_random_walk_radius: o.jump_random_walk_radius ?? 10.0,
 } : {})
 export const navigate = (lat: number, lng: number, mode: string, speed?: SpeedOpts, udid?: string, straightLine?: boolean, routeEngine?: string) =>
   request<any>('POST', '/api/location/navigate', { lat, lng, mode, ...sp(speed), ...sl(straightLine), ...re(routeEngine), ...ud(udid) })
-export const startLoop = (waypoints: { lat: number; lng: number }[], mode: string, speed?: SpeedOpts, pause?: PauseOpts, udid?: string, straightLine?: boolean, lapCount?: number | null, routeEngine?: string, jump?: JumpOpts) =>
-  request<any>('POST', '/api/location/loop', { waypoints, mode, ...sp(speed), ...pp(pause), ...sl(straightLine), ...re(routeEngine), ...ud(udid), ...(lapCount != null && lapCount > 0 ? { lap_count: lapCount } : {}), ...jm(jump) })
-export const multiStop = (waypoints: { lat: number; lng: number }[], mode: string, stop_duration: number, loop: boolean, speed?: SpeedOpts, pause?: PauseOpts, udid?: string, straightLine?: boolean, routeEngine?: string, jump?: JumpOpts) =>
-  request<any>('POST', '/api/location/multistop', { waypoints, mode, stop_duration, loop, ...sp(speed), ...pp(pause), ...sl(straightLine), ...re(routeEngine), ...ud(udid), ...jm(jump) })
+export const startLoop = (waypoints: { lat: number; lng: number }[], mode: string, speed?: SpeedOpts, pause?: PauseOpts, udid?: string, straightLine?: boolean, lapCount?: number | null, routeEngine?: string, jump?: JumpOpts, startIndex?: number) =>
+  request<any>('POST', '/api/location/loop', { waypoints, mode, ...sp(speed), ...pp(pause), ...sl(straightLine), ...re(routeEngine), ...ud(udid), ...(lapCount != null && lapCount > 0 ? { lap_count: lapCount } : {}), ...jm(jump), ...(startIndex != null && startIndex > 0 ? { start_index: startIndex } : {}) })
+export const multiStop = (waypoints: { lat: number; lng: number }[], mode: string, stop_duration: number, loop: boolean, speed?: SpeedOpts, pause?: PauseOpts, udid?: string, straightLine?: boolean, routeEngine?: string, jump?: JumpOpts, startIndex?: number) =>
+  request<any>('POST', '/api/location/multistop', { waypoints, mode, stop_duration, loop, ...sp(speed), ...pp(pause), ...sl(straightLine), ...re(routeEngine), ...ud(udid), ...jm(jump), ...(startIndex != null && startIndex > 0 ? { start_index: startIndex } : {}) })
 export const randomWalk = (center: { lat: number; lng: number }, radius_m: number, mode: string, speed?: SpeedOpts, pause?: PauseOpts, udid?: string, seed?: number | null, straightLine?: boolean, routeEngine?: string, centerMode?: string, forward?: { enabled: boolean; turnDeg: number }) =>
   request<any>('POST', '/api/location/randomwalk', { center, radius_m, mode, ...sp(speed), ...pp(pause), ...sl(straightLine), ...re(routeEngine), ...ud(udid), ...(seed != null ? { seed } : {}), ...(centerMode ? { center_mode: centerMode } : {}), ...(forward?.enabled ? { forward_enabled: true, forward_turn_deg: forward.turnDeg } : {}) })
+export const startSpiral = (center: { lat: number; lng: number }, radius_m: number, spacing_m: number, mode: string, speed?: SpeedOpts, udid?: string, straightLine?: boolean, routeEngine?: string) =>
+  request<any>('POST', '/api/location/spiral', { center, radius_m, spacing_m, mode, ...sp(speed), ...sl(straightLine), ...re(routeEngine), ...ud(udid) })
 export const joystickStart = (mode: string, udid?: string) =>
   request<any>('POST', '/api/location/joystick/start', { mode, ...ud(udid) })
 export const joystickStop = (udid?: string) => request<any>('POST', `/api/location/joystick/stop${qs(udid)}`)
@@ -324,6 +334,13 @@ export const applySpeed = (mode: string, opts: { speed_kmh?: number | null; spee
     speed_kmh: opts.speed_kmh ?? null,
     speed_min_kmh: opts.speed_min_kmh ?? null,
     speed_max_kmh: opts.speed_max_kmh ?? null,
+    ...ud(udid),
+  })
+
+export const applyJumpSettings = (jump_random_walk: boolean, jump_random_walk_radius: number, udid?: string) =>
+  request<{ status: string; jump_random_walk: boolean; jump_random_walk_radius: number }>('POST', '/api/location/apply-jump-settings', {
+    jump_random_walk,
+    jump_random_walk_radius,
     ...ud(udid),
   })
 

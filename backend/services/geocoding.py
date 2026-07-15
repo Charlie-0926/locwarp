@@ -64,7 +64,7 @@ class GeocodingService:
         return await self._search_nominatim(query, limit)
 
     async def _search_nominatim(self, query: str, limit: int) -> list[GeocodingResult]:
-        params = {
+        params: dict[str, str | int | float | bool | None] = {
             "q": query,
             "format": "json",
             "limit": min(limit, 40),
@@ -100,7 +100,7 @@ class GeocodingService:
         # `geometry.coordinates = [lon, lat]` and `properties` with name /
         # city / country / etc. There's no `display_name` field, so we
         # synthesise one from the properties for parity with Nominatim.
-        params = {"q": query, "limit": min(limit, 40)}
+        params: dict[str, str | int | float | bool | None] = {"q": query, "limit": min(limit, 40)}
         logger.debug("Photon search: %s", query)
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             resp = await client.get(
@@ -213,7 +213,7 @@ class GeocodingService:
 
         Returns ``None`` when no result is found.
         """
-        params = {
+        params: dict[str, str | int | float | bool | None] = {
             "lat": lat,
             "lon": lng,
             "format": "json",

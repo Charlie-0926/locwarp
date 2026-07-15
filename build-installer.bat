@@ -13,7 +13,7 @@ echo ============================================================
 echo  [1/3] Build backend (Python 3.13) with PyInstaller
 echo ============================================================
 cd /d "%ROOT%\backend"
-py -3.13 -m PyInstaller locwarp-backend.spec --noconfirm --distpath "%ROOT%\dist-py" --workpath "%ROOT%\build-py\backend"
+python -m PyInstaller locwarp-backend.spec --noconfirm --distpath "%ROOT%\dist-py" --workpath "%ROOT%\build-py\backend"
 if errorlevel 1 (echo backend build failed & exit /b 1)
 
 echo.

@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
+import random
 import random
 
 from models.schemas import Coordinate, MovementMode, SimulationState
-from config import resolve_speed_profile
+from config import resolve_speed_profile, SpeedProfile
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +27,7 @@ class MultiStopNavigator:
         stop_duration: float = 0,
         loop: bool = False,
         *,
+        start_index: int = 0,
         speed_kmh: float | None = None,
         speed_min_kmh: float | None = None,
         speed_max_kmh: float | None = None,
@@ -36,6 +39,8 @@ class MultiStopNavigator:
         jump_mode: bool = False,
         jump_pre_delay: float = 2.0,
         jump_post_delay: float = 4.0,
+        jump_random_walk: bool = False,
+        jump_random_walk_radius: float = 10.0,
     ) -> None:
         """Navigate through *waypoints* one leg at a time.
 
@@ -56,18 +61,23 @@ class MultiStopNavigator:
         if len(waypoints) < 2:
             raise ValueError("At least 2 waypoints are required for multi-stop")
 
+        requested_start_index = max(0, min(int(start_index or 0), len(waypoints) - 2))
+
         # Jump mode: teleport point-to-point with configurable pre / post
         # delays. Skips OSRM routing and the normal "near first waypoint?"
         # preamble because the user wants to land exactly on each stop, in
         # order, without walking. Honors loop=True to repeat. stop_duration
         # / pause_* are ignored. Both delays honour pause + stop.
         if jump_mode:
+            engine.jump_random_walk = jump_random_walk
+            engine.jump_random_walk_radius = jump_random_walk_radius
             await _run_jump_multistop(
                 engine,
                 waypoints,
                 pre_delay=max(0.0, float(jump_pre_delay)),
                 post_delay=max(0.0, float(jump_post_delay)),
                 loop=loop,
+                start_index=requested_start_index,
             )
             return
 
@@ -79,11 +89,11 @@ class MultiStopNavigator:
         profile_name = mode.value
         osrm_profile = "foot" if mode in (MovementMode.WALKING, MovementMode.RUNNING) else "car"
 
-        def _pick_profile() -> dict:
+        def _pick_profile() -> SpeedProfile:
             # Honor mid-flight apply_speed across legs / laps; otherwise
             # re-pick from the original args (so range mode varies).
             if engine._speed_was_applied and engine._active_speed_profile is not None:
-                return dict(engine._active_speed_profile)
+                return engine._active_speed_profile
             return resolve_speed_profile(
                 profile_name, speed_kmh, speed_min_kmh, speed_max_kmh,
             )
@@ -102,15 +112,17 @@ class MultiStopNavigator:
             resume_uwn = int(resume_snap.get("user_waypoint_next", 1))
         else:
             engine.lap_count = 0
-            resume_seg = 0
-            resume_uwn = 1
+            resume_seg = requested_start_index
+            resume_uwn = requested_start_index + 1
         engine.segment_index = resume_seg
         engine.distance_traveled = 0.0
 
         # Pre-calculate full route path for display + grand total distance so
         # the UI can show total-trip ETA (like route_loop does) instead of
         # the per-leg ETA, which resets at each stop.
-        all_wp_tuples = [(wp.lat, wp.lng) for wp in waypoints]
+        display_start_index = resume_seg if resume_snap else requested_start_index
+        display_waypoints = waypoints[display_start_index:]
+        all_wp_tuples = [(wp.lat, wp.lng) for wp in display_waypoints]
         full_total_distance = 0.0
         try:
             full_route = await engine.route_service.get_multi_route(
@@ -130,23 +142,24 @@ class MultiStopNavigator:
             "waypoints": [{"lat": wp.lat, "lng": wp.lng} for wp in waypoints],
             "stop_duration": stop_duration,
             "loop": loop,
+            "start_index": display_start_index,
         })
 
         logger.info(
-            "Multi-stop started: %d waypoints, stop=%ds, loop=%s [%s]",
-            len(waypoints), stop_duration, loop, profile_name,
+            "Multi-stop started: %d waypoints, start=%d, stop=%ds, loop=%s [%s]",
+            len(waypoints), display_start_index, stop_duration, loop, profile_name,
         )
 
-        # Ensure we start from the first waypoint's location
-        # If we're not near the first waypoint, navigate there first.
+        # Ensure we start from the selected waypoint's location.
+        # If we're not near that waypoint, navigate there first.
         # Skip this preamble entirely on resume — the previous engine
         # was already past wp[0] and we want the iPhone to continue from
         # whichever leg it was on, not walk back to the start.
         if not resume_snap:
-            first = waypoints[0]
+            first = waypoints[requested_start_index]
             start_pos = engine.current_position
             start_dist = self._quick_distance(start_pos, first)
-            if start_dist > 50:  # more than 50m away, route to the first waypoint
+            if start_dist > 50:  # more than 50m away, route to the selected waypoint
                 route_data = await engine.route_service.get_route(
                     start_pos.lat, start_pos.lng,
                     first.lat, first.lng,
@@ -163,7 +176,7 @@ class MultiStopNavigator:
         # Track the named user waypoints so highlight events refer to them
         # (otherwise OSRM densification would emit indices over road points).
         engine._user_waypoints = list(waypoints)
-        engine._user_waypoint_next = resume_uwn if resume_snap else 1
+        engine._user_waypoint_next = resume_uwn
 
         # Track how much of the grand total we have already finished so the
         # offset we hand to _move_along_route reflects the remaining legs
@@ -174,16 +187,15 @@ class MultiStopNavigator:
         first_lap = True
         while running and not engine._stop_event.is_set():
             # On each loop pass (only > 1 if loop=True) restart the highlight
-            # at waypoint[1] so the UI re-highlights from the top.
+            # at the selected first target so the UI re-highlights correctly.
             if loop and engine._user_waypoint_next >= len(waypoints):
-                engine._user_waypoint_next = 1
+                engine._user_waypoint_next = requested_start_index + 1
             # New lap: reset completed distance so the total-ETA countdown
             # restarts from full trip length.
             completed_distance = 0.0
             # On a resume, the first lap starts at the leg the previous
-            # engine was on instead of leg 0. Subsequent laps always
-            # start from leg 0.
-            leg_start = resume_seg if (first_lap and resume_snap) else 0
+            # engine was on. Otherwise, keep the user-selected run start.
+            leg_start = resume_seg if (first_lap and resume_snap) else requested_start_index
             for i in range(leg_start, len(waypoints) - 1):
                 if engine._stop_event.is_set():
                     break
@@ -304,7 +316,19 @@ class MultiStopNavigator:
         return 6_371_000 * math.sqrt(dlat ** 2 + dlng ** 2)
 
 
-async def jump_wait(engine, seconds: float, *, source: str) -> bool:
+async def jump_wait(
+    engine,
+    seconds: float,
+    *,
+    source: str,
+    base_wp: Coordinate | None = None,
+    index: int = 0,
+    total_waypoints: int = 1,
+    do_random_walk: bool = False,
+    pre_delay: float = 0.0,
+    post_delay: float = 0.0,
+    is_pre_delay: bool = False,
+) -> bool:
     """Sleep for *seconds*, honouring both stop and pause.
 
     - Stop wakes the wait immediately and returns True.
@@ -312,16 +336,34 @@ async def jump_wait(engine, seconds: float, *, source: str) -> bool:
       time runs to completion. Without this, pause was a no-op in jump
       mode (issue #32) — the next teleport fired regardless.
 
-    Polls in 100 ms slices so a pause that lands mid-delay takes effect
-    promptly without spinning a dedicated watcher task.
+    If do_random_walk is True, wanders randomly around base_wp every 1.0 second,
+    updating coordinates and emitting position_update events.
     """
     remaining = max(0.0, float(seconds))
     emitted = False
+    elapsed = 0.0
+    step = 1.0
     try:
         while True:
             if engine._stop_event.is_set():
                 return True
             if not engine._pause_event.is_set():
+                if base_wp is not None:
+                    eta_seconds = (total_waypoints - 1 - index) * (pre_delay + post_delay) + (post_delay if is_pre_delay else 0.0) + remaining
+                    await engine._emit("position_update", {
+                        "lat": engine.current_position.lat if engine.current_position else base_wp.lat,
+                        "lng": engine.current_position.lng if engine.current_position else base_wp.lng,
+                        "speed_mps": 0.0,
+                        "progress": (index + (elapsed / max(seconds, 1.0))) / max(total_waypoints, 1),
+                        "segment_index": index,
+                        "total_segments": total_waypoints,
+                        "lap_count": engine.lap_count,
+                        "distance_traveled": 0.0,
+                        "distance_remaining": 0.0,
+                        "eta_seconds": eta_seconds,
+                        "eta_arrival": "",
+                        "is_paused": True,
+                    })
                 pause_task = asyncio.ensure_future(engine._pause_event.wait())
                 stop_task = asyncio.ensure_future(engine._stop_event.wait())
                 try:
@@ -343,12 +385,38 @@ async def jump_wait(engine, seconds: float, *, source: str) -> bool:
                     "source": source,
                 })
                 emitted = True
-            slice_s = min(remaining, 0.1)
+            slice_s = min(remaining, step if do_random_walk else 0.1)
             try:
                 await asyncio.wait_for(engine._stop_event.wait(), timeout=slice_s)
                 return True
             except asyncio.TimeoutError:
                 remaining -= slice_s
+                elapsed += slice_s
+            if do_random_walk and base_wp is not None and remaining > 0:
+                radius_m = getattr(engine, "jump_random_walk_radius", 10.0)
+                r = radius_m * math.sqrt(random.random())
+                theta = random.random() * 2 * math.pi
+                dx = r * math.cos(theta)
+                dy = r * math.sin(theta)
+                dlat = dy / 111320.0
+                dlng = dx / (111320.0 * math.cos(math.radians(base_wp.lat)))
+                cur_lat = base_wp.lat + dlat
+                cur_lng = base_wp.lng + dlng
+                await engine._set_position(cur_lat, cur_lng)
+                eta_seconds = (total_waypoints - 1 - index) * (pre_delay + post_delay) + (post_delay if is_pre_delay else 0.0) + remaining
+                await engine._emit("position_update", {
+                    "lat": cur_lat, "lng": cur_lng,
+                    "speed_mps": 0.0,
+                    "progress": (index + (elapsed / max(seconds, 1.0))) / max(total_waypoints, 1),
+                    "segment_index": index,
+                    "total_segments": total_waypoints,
+                    "lap_count": engine.lap_count,
+                    "distance_traveled": 0.0,
+                    "distance_remaining": 0.0,
+                    "eta_seconds": eta_seconds,
+                    "eta_arrival": "",
+                    "is_paused": False,
+                })
     finally:
         if emitted:
             await engine._emit("pause_countdown_end", {"source": source})
@@ -361,6 +429,7 @@ async def _run_jump_multistop(
     pre_delay: float,
     post_delay: float,
     loop: bool,
+    start_index: int = 0,
 ) -> None:
     """Teleport sequentially through *waypoints*. Each stop is preceded
     by *pre_delay* seconds and followed by *post_delay* seconds. When
@@ -370,39 +439,48 @@ async def _run_jump_multistop(
     engine.state = SimulationState.MULTI_STOP
     engine.total_segments = len(waypoints)
     engine.lap_count = 0
-    engine.segment_index = 0
+    engine.segment_index = start_index
     engine.distance_traveled = 0.0
     engine.distance_remaining = 0.0
     engine._user_waypoints = list(waypoints)
-    engine._user_waypoint_next = 1 if len(waypoints) > 1 else 0
+    engine._user_waypoint_next = min(start_index + 1, len(waypoints) - 1)
 
     await engine._emit("route_path", {
-        "coords": [{"lat": wp.lat, "lng": wp.lng} for wp in waypoints],
+        "coords": [{"lat": wp.lat, "lng": wp.lng} for wp in waypoints[start_index:]],
     })
     await engine._emit("state_change", {
         "state": engine.state.value,
         "waypoints": [{"lat": wp.lat, "lng": wp.lng} for wp in waypoints],
         "stop_duration": 0,
         "loop": loop,
+        "start_index": start_index,
     })
 
     logger.info(
-        "Jump multi-stop started: %d waypoints, pre=%.1fs post=%.1fs, loop=%s",
-        len(waypoints), pre_delay, post_delay, loop,
+        "Jump multi-stop started: %d waypoints, start=%d, pre=%.1fs post=%.1fs, loop=%s",
+        len(waypoints), start_index, pre_delay, post_delay, loop,
     )
 
     running = True
     while running and not engine._stop_event.is_set():
-        for i, wp in enumerate(waypoints):
+        for i in range(start_index, len(waypoints)):
+            wp = waypoints[i]
             if engine._stop_event.is_set():
                 break
-            if await jump_wait(engine, pre_delay, source="multi_stop"):
+            if await jump_wait(
+                engine, pre_delay, source="multi_stop",
+                base_wp=wp, index=i, total_waypoints=len(waypoints),
+                do_random_walk=False, pre_delay=pre_delay, post_delay=post_delay,
+                is_pre_delay=True
+            ):
                 break
             if engine._stop_event.is_set():
                 break
+
             await engine._set_position(wp.lat, wp.lng)
             engine.segment_index = i
             engine._user_waypoint_next = min(i + 1, len(waypoints))
+            eta_secs = (len(waypoints) - 1 - i) * (pre_delay + post_delay) + post_delay
             await engine._emit("position_update", {
                 "lat": wp.lat, "lng": wp.lng,
                 "speed_mps": 0.0,
@@ -412,7 +490,7 @@ async def _run_jump_multistop(
                 "lap_count": engine.lap_count,
                 "distance_traveled": 0.0,
                 "distance_remaining": 0.0,
-                "eta_seconds": 0.0,
+                "eta_seconds": eta_secs,
                 "eta_arrival": "",
                 "is_paused": False,
             })
@@ -431,7 +509,13 @@ async def _run_jump_multistop(
             is_last = (i == len(waypoints) - 1)
             if is_last and not loop:
                 continue
-            if await jump_wait(engine, post_delay, source="multi_stop"):
+            if await jump_wait(
+                engine, post_delay, source="multi_stop",
+                base_wp=wp, index=i, total_waypoints=len(waypoints),
+                do_random_walk=getattr(engine, "jump_random_walk", False),
+                pre_delay=pre_delay, post_delay=post_delay,
+                is_pre_delay=False
+            ):
                 break
 
         if not loop or engine._stop_event.is_set():

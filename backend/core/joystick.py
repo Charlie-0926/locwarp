@@ -8,7 +8,7 @@ import time
 
 from models.schemas import JoystickInput, MovementMode, SimulationState
 from services.interpolator import RouteInterpolator
-from config import SPEED_PROFILES
+from config import SPEED_PROFILES, SpeedProfile
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ class JoystickHandler:
     def __init__(self, engine):
         self.engine = engine
         self.is_active: bool = False
-        self.speed_profile: dict | None = None
+        self.speed_profile: SpeedProfile | None = None
         self._task: asyncio.Task | None = None
         self._current_input = JoystickInput(direction=0, intensity=0)
 
@@ -84,10 +84,11 @@ class JoystickHandler:
                 tick_start = time.monotonic()
                 inp = self._current_input
 
-                if inp.intensity > 0 and engine.current_position is not None:
-                    speed_mps = self.speed_profile["speed_mps"] * inp.intensity
+                profile = self.speed_profile
+                if inp.intensity > 0 and engine.current_position is not None and profile is not None:
+                    speed_mps = profile["speed_mps"] * inp.intensity
                     distance = speed_mps * _TICK_INTERVAL  # meters this tick
-                    jitter = self.speed_profile.get("jitter", 0.3)
+                    jitter = profile.get("jitter", 0.3)
 
                     # Calculate new position
                     new_lat, new_lng = RouteInterpolator.move_point(

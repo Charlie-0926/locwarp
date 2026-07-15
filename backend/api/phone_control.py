@@ -146,7 +146,12 @@ def _firewall_add_rule(port: int) -> tuple[bool, str]:
             ["netsh", "advfirewall", "firewall", "delete", "rule",
              "name=all", "dir=in", "action=block",
              "protocol=TCP", f"localport={port}"],
-            **netsh_kwargs,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=4.0,
+            creationflags=0x08000000,  # CREATE_NO_WINDOW
         )
     except Exception:
         logger.debug("port-scoped block sweep failed", exc_info=True)
@@ -158,7 +163,12 @@ def _firewall_add_rule(port: int) -> tuple[bool, str]:
             subprocess.run(
                 ["netsh", "advfirewall", "firewall", "delete", "rule",
                  f"name={auto_name}", "dir=in", "action=block"],
-                **netsh_kwargs,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=4.0,
+                creationflags=0x08000000,  # CREATE_NO_WINDOW
             )
         except Exception:
             logger.debug("auto-name block sweep failed for %s", auto_name, exc_info=True)
@@ -168,7 +178,12 @@ def _firewall_add_rule(port: int) -> tuple[bool, str]:
         proc = subprocess.run(
             ["netsh", "advfirewall", "firewall", "show", "rule",
              f"name={_RULE_NAME}"],
-            **netsh_kwargs,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=4.0,
+            creationflags=0x08000000,  # CREATE_NO_WINDOW
         )
         if proc.returncode == 0 and _RULE_NAME in (proc.stdout or ""):
             return True, "rule already exists"
@@ -185,7 +200,12 @@ def _firewall_add_rule(port: int) -> tuple[bool, str]:
                 "protocol=TCP", f"localport={port}",
                 "profile=private,public",
             ],
-            **netsh_kwargs,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=4.0,
+            creationflags=0x08000000,  # CREATE_NO_WINDOW
         )
         if proc.returncode == 0:
             return True, "rule added"
@@ -285,7 +305,7 @@ def _enumerate_nics() -> list[dict]:
     primary = _primary_route_ip()
 
     try:
-        import psutil  # type: ignore[import-not-found]
+        import psutil  # type: ignore[import-not-found, import-untyped]
     except ImportError:
         # Fallback: just the route + hostname lookups, unlabelled.
         seen: set[str] = set()

@@ -10,9 +10,12 @@ from models.schemas import (
     LoopRequest,
     MultiStopRequest,
     RandomWalkRequest,
+    SpiralRequest,
     JoystickStartRequest,
     GoldDittoCycleRequest,
+    ApplyJumpSettingsRequest,
     SimulationStatus,
+    SimulationState,
     Coordinate,
     CooldownSettings,
     CooldownStatus,
@@ -121,7 +124,7 @@ _DEVICE_LOST_REASON_MESSAGES: dict[str, str] = {
 
 def _device_lost_message(exc: Exception) -> tuple[str, str]:
     """Map a DeviceLostError (or wrapped) to a (reason, message) tuple."""
-    cause: Exception | None = exc
+    cause: BaseException | None = exc
     seen: set[int] = set()
     while cause is not None and id(cause) not in seen:
         seen.add(id(cause))
@@ -285,6 +288,18 @@ async def apply_speed(req: ApplySpeedRequest):
     return {"status": "applied", "speed_mps": profile["speed_mps"]}
 
 
+@router.post("/apply-jump-settings")
+async def apply_jump_settings(req: ApplyJumpSettingsRequest):
+    engine = await _engine(getattr(req, "udid", None) if 'req' in dir() else None)
+    if engine.state not in (SimulationState.LOOPING, SimulationState.MULTI_STOP):
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "invalid_state", "message": "目前不在巡邏或多點導航模式"},
+        )
+    engine.apply_jump_settings(req.jump_random_walk, req.jump_random_walk_radius)
+    return {"status": "applied", "jump_random_walk": req.jump_random_walk, "jump_random_walk_radius": req.jump_random_walk_radius}
+
+
 @router.post("/teleport")
 async def teleport(req: TeleportRequest):
     engine = await _engine(getattr(req, "udid", None) if 'req' in dir() else None)
@@ -330,7 +345,7 @@ async def teleport(req: TeleportRequest):
         logging.getLogger("locwarp").error("Teleport failed:\n%s", traceback.format_exc())
         # Also inspect the cause — nested DeviceLostError (e.g. re-raised from
         # the simulation engine retry loop) should still trigger cleanup.
-        cause = e
+        cause: BaseException | None = e
         while cause is not None:
             if isinstance(cause, DeviceLostError):
                 raise (await _handle_device_lost(cause, action_udid))
@@ -387,13 +402,18 @@ async def loop(req: LoopRequest):
     engine = await _engine(getattr(req, "udid", None) if 'req' in dir() else None)
     _spawn(engine.start_loop(
         req.waypoints, req.mode,
+        start_index=req.start_index,
         speed_kmh=req.speed_kmh,
         speed_min_kmh=req.speed_min_kmh, speed_max_kmh=req.speed_max_kmh,
         pause_enabled=req.pause_enabled, pause_min=req.pause_min, pause_max=req.pause_max,
         straight_line=req.straight_line,
         route_engine=req.route_engine,
         lap_count=req.lap_count,
-        jump_mode=req.jump_mode, jump_pre_delay=req.jump_pre_delay, jump_post_delay=req.jump_post_delay,
+        jump_mode=req.jump_mode,
+        jump_pre_delay=req.jump_pre_delay,
+        jump_post_delay=req.jump_post_delay,
+        jump_random_walk=req.jump_random_walk,
+        jump_random_walk_radius=req.jump_random_walk_radius,
     ))
     return {"status": "started", "waypoints": len(req.waypoints), "mode": req.mode}
 
@@ -403,12 +423,17 @@ async def multi_stop(req: MultiStopRequest):
     engine = await _engine(getattr(req, "udid", None) if 'req' in dir() else None)
     _spawn(engine.multi_stop(
         req.waypoints, req.mode, req.stop_duration, req.loop,
+        start_index=req.start_index,
         speed_kmh=req.speed_kmh,
         speed_min_kmh=req.speed_min_kmh, speed_max_kmh=req.speed_max_kmh,
         pause_enabled=req.pause_enabled, pause_min=req.pause_min, pause_max=req.pause_max,
         straight_line=req.straight_line,
         route_engine=req.route_engine,
-        jump_mode=req.jump_mode, jump_pre_delay=req.jump_pre_delay, jump_post_delay=req.jump_post_delay,
+        jump_mode=req.jump_mode,
+        jump_pre_delay=req.jump_pre_delay,
+        jump_post_delay=req.jump_post_delay,
+        jump_random_walk=req.jump_random_walk,
+        jump_random_walk_radius=req.jump_random_walk_radius,
     ))
     return {"status": "started", "stops": len(req.waypoints), "mode": req.mode}
 
@@ -449,6 +474,19 @@ async def random_walk(req: RandomWalkRequest):
         forward_turn_deg=req.forward_turn_deg,
     ))
     return {"status": "started", "radius_m": req.radius_m, "mode": req.mode}
+
+
+@router.post("/spiral")
+async def start_spiral(req: SpiralRequest):
+    engine = await _engine(getattr(req, "udid", None) if 'req' in dir() else None)
+    _spawn(engine.start_spiral(
+        req.center, req.radius_m, req.spacing_m, req.mode,
+        speed_kmh=req.speed_kmh,
+        speed_min_kmh=req.speed_min_kmh, speed_max_kmh=req.speed_max_kmh,
+        straight_line=req.straight_line,
+        route_engine=req.route_engine,
+    ))
+    return {"status": "started", "radius_m": req.radius_m, "spacing_m": req.spacing_m, "mode": req.mode}
 
 
 @router.post("/joystick/start")
@@ -500,7 +538,7 @@ async def goldditto_cycle(req: GoldDittoCycleRequest):
     except Exception as e:
         import traceback, logging
         logging.getLogger("locwarp").error("Gold Ditto cycle failed:\n%s", traceback.format_exc())
-        cause = e
+        cause: BaseException | None = e
         while cause is not None:
             if isinstance(cause, DeviceLostError):
                 raise (await _handle_device_lost(cause, action_udid))

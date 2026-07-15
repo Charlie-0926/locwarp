@@ -33,7 +33,7 @@ TIMEZONEDB_URL = "https://api.timezonedb.com/v2.1/get-time-zone"
 
 
 async def get_timezone(lat: float, lng: float) -> TimezoneInfo | None:
-    params = {"key": TIMEZONEDB_KEY, "format": "json", "by": "position", "lat": lat, "lng": lng}
+    params: dict[str, str | int | float | bool | None] = {"key": TIMEZONEDB_KEY, "format": "json", "by": "position", "lat": lat, "lng": lng}
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             resp = await client.get(TIMEZONEDB_URL, params=params)
@@ -88,7 +88,7 @@ def _photon_to_result(feat: dict) -> GeocodingResult | None:
 
 
 async def photon_search(query: str, limit: int = 5) -> list[GeocodingResult]:
-    params = {"q": query, "limit": min(limit, 40)}
+    params: dict[str, str | int | float | bool | None] = {"q": query, "limit": min(limit, 40)}
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             resp = await client.get(f"{PHOTON_BASE_URL}/api", params=params)
@@ -425,3 +425,35 @@ def optimize_order_exact(
             best_d = d
             best_order = order
     return best_order
+
+
+def optimize_order_2opt(
+    durations: list[list[float]], keep_first: bool,
+) -> list[int]:
+    """2-opt local search optimization for larger TSP sets.
+    Starts with nearest neighbor, then iteratively reverses segments
+    if it improves the total route distance."""
+    n = len(durations)
+    if n <= 2:
+        return list(range(n))
+    
+    order = optimize_order_nearest_neighbor(durations, keep_first)
+    best_cost = _route_total(durations, order)
+    improved = True
+    
+    while improved:
+        improved = False
+        start_idx = 1 if keep_first else 0
+        for i in range(start_idx, n - 1):
+            for j in range(i + 1, n):
+                new_order = order[:]
+                new_order[i:j+1] = reversed(order[i:j+1])
+                new_cost = _route_total(durations, new_order)
+                if new_cost < best_cost - 1e-4:
+                    order = new_order
+                    best_cost = new_cost
+                    improved = True
+                    break
+            if improved:
+                break
+    return order

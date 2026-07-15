@@ -5,6 +5,10 @@ from models.schemas import DeviceInfo
 
 router = APIRouter(prefix="/api/device", tags=["device"])
 
+# Group-mode device cap. Same value gates USB auto-connect, /wifi/tunnel,
+# /wifi/tunnel/start, /wifi/tunnel/start-and-connect, and /{udid}/connect.
+MAX_DEVICES = 3
+
 
 def _dm():
     from main import app_state
@@ -96,9 +100,7 @@ from core.wifi_tunnel import TunnelRunner
 
 _tunnel_logger = logging.getLogger("wifi_tunnel")
 
-# Group-mode device cap. Same value gates USB auto-connect, /wifi/tunnel,
-# /wifi/tunnel/start, /wifi/tunnel/start-and-connect, and /{udid}/connect.
-MAX_DEVICES = 3
+# (MAX_DEVICES defined at the top of this file)
 
 # Per-device tunnel registry. Each connected iOS 17+ device that uses
 # WiFi (instead of USB) gets its own TunnelRunner. v0.2.83 lifted the
@@ -125,13 +127,13 @@ async def wifi_repair():
          pymobiledevice3 persists the RemotePairing record to
          ~/.pymobiledevice3/ as a side effect of the RSD handshake.
     """
-    from pymobiledevice3.lockdown import create_using_usbmux
-    from pymobiledevice3.usbmux import list_devices as mux_list_devices
-    from pymobiledevice3.remote.tunnel_service import (
+    from pymobiledevice3.lockdown import create_using_usbmux  # type: ignore[import-untyped]
+    from pymobiledevice3.usbmux import list_devices as mux_list_devices  # type: ignore[import-untyped]
+    from pymobiledevice3.remote.tunnel_service import (  # type: ignore[import-untyped]
         CoreDeviceTunnelProxy,
         create_core_device_tunnel_service_using_rsd,
     )
-    from pymobiledevice3.remote.remote_service_discovery import RemoteServiceDiscoveryService
+    from pymobiledevice3.remote.remote_service_discovery import RemoteServiceDiscoveryService  # type: ignore[import-untyped]
 
     try:
         raw_devices = await mux_list_devices()
@@ -185,8 +187,8 @@ async def wifi_repair():
         # RemotePairingProtocol.connect() path can't short-circuit through
         # the cached (possibly-corrupt) record and actually runs _pair().
         try:
-            from pymobiledevice3.common import get_home_folder
-            from pymobiledevice3.pair_records import (
+            from pymobiledevice3.common import get_home_folder  # type: ignore[import-untyped]
+            from pymobiledevice3.pair_records import (  # type: ignore[import-untyped]
                 PAIRING_RECORD_EXT,
                 get_remote_pairing_record_filename,
             )
@@ -246,7 +248,7 @@ async def wifi_repair():
                 },
             )
         finally:
-            # Close everything in reverse order; ignore errors.
+            import inspect
             for closer in (
                 lambda: tunnel_svc and tunnel_svc.close(),
                 lambda: rsd and rsd.close(),
@@ -254,13 +256,15 @@ async def wifi_repair():
             ):
                 try:
                     r = closer()
-                    if hasattr(r, "__await__"):
+                    if r is not None and inspect.isawaitable(r):
                         await r
                 except Exception:
                     pass
             try:
                 if proxy is not None:
-                    proxy.close()
+                    r = proxy.close()
+                    if r is not None and inspect.isawaitable(r):
+                        await r
             except Exception:
                 pass
 
@@ -391,7 +395,7 @@ async def wifi_tunnel_discover():
 
     # --- 1) mDNS / Bonjour broadcast ---
     try:
-        from pymobiledevice3.bonjour import browse_remotepairing
+        from pymobiledevice3.bonjour import browse_remotepairing  # type: ignore[import-untyped]
         instances = await browse_remotepairing(timeout=3.0)
         for inst in instances:
             # Newer pymobiledevice3 returns Address objects with .ip and
@@ -1324,7 +1328,7 @@ async def amfi_reveal_developer_mode(udid: str):
         )
 
     try:
-        from pymobiledevice3.services.amfi import AmfiService
+        from pymobiledevice3.services.amfi import AmfiService  # type: ignore[import-untyped]
     except ImportError as exc:
         raise HTTPException(
             status_code=500,
@@ -1336,7 +1340,8 @@ async def amfi_reveal_developer_mode(udid: str):
     # For iOS 17+ devices we stash the original USB lockdown on
     # conn.usbmux_lockdown; use it here. For iOS 16 devices conn.lockdown
     # IS the USB lockdown, so fall back to it.
-    amfi_lockdown = getattr(conn, "usbmux_lockdown", None) or conn.lockdown
+    from typing import cast, Any
+    amfi_lockdown = cast(Any, getattr(conn, "usbmux_lockdown", None) or conn.lockdown)
     if amfi_lockdown is None:
         raise HTTPException(
             status_code=400,

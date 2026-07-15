@@ -17,6 +17,7 @@ class SimulationState(str, Enum):
     JOYSTICK = "joystick"
     RANDOM_WALK = "random_walk"
     MULTI_STOP = "multi_stop"
+    SPIRAL = "spiral"
     PAUSED = "paused"
     RECONNECTING = "reconnecting"
     DISCONNECTED = "disconnected"
@@ -69,6 +70,9 @@ class NavigateRequest(BaseModel):
 class LoopRequest(BaseModel):
     waypoints: list[Coordinate]
     mode: MovementMode = MovementMode.WALKING
+    # Run-only start point. For loops, traversal continues cyclically from
+    # this index and closes back to it without reordering the saved route.
+    start_index: int = Field(default=0, ge=0)
     speed_kmh: float | None = None
     speed_min_kmh: float | None = None
     speed_max_kmh: float | None = None
@@ -87,6 +91,8 @@ class LoopRequest(BaseModel):
     jump_mode: bool = False
     jump_pre_delay: float = 2.0
     jump_post_delay: float = 4.0
+    jump_random_walk: bool = False
+    jump_random_walk_radius: float = 10.0
 
 
 class MultiStopRequest(BaseModel):
@@ -94,6 +100,8 @@ class MultiStopRequest(BaseModel):
     mode: MovementMode = MovementMode.WALKING
     stop_duration: int = 0
     loop: bool = False
+    # Run-only start point. The waypoint list keeps its original order.
+    start_index: int = Field(default=0, ge=0)
     speed_kmh: float | None = None
     speed_min_kmh: float | None = None
     speed_max_kmh: float | None = None
@@ -108,6 +116,8 @@ class MultiStopRequest(BaseModel):
     jump_mode: bool = False
     jump_pre_delay: float = 2.0
     jump_post_delay: float = 4.0
+    jump_random_walk: bool = False
+    jump_random_walk_radius: float = 10.0
 
 
 class RandomWalkRequest(BaseModel):
@@ -136,9 +146,28 @@ class RandomWalkRequest(BaseModel):
     forward_turn_deg: float = 35.0
 
 
+class SpiralRequest(BaseModel):
+    center: Coordinate
+    radius_m: float = 500.0
+    spacing_m: float = 20.0
+    mode: MovementMode = MovementMode.WALKING
+    speed_kmh: float | None = None
+    speed_min_kmh: float | None = None
+    speed_max_kmh: float | None = None
+    straight_line: bool = True
+    route_engine: str | None = None
+    udid: str | None = None
+
+
 class JoystickStartRequest(BaseModel):
     mode: MovementMode = MovementMode.WALKING
     speed_kmh: float | None = None
+    udid: str | None = None
+
+
+class ApplyJumpSettingsRequest(BaseModel):
+    jump_random_walk: bool
+    jump_random_walk_radius: float
     udid: str | None = None
 
 

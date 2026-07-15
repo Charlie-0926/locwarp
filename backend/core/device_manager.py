@@ -21,15 +21,15 @@ import logging
 import socket
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, Any, cast
 
-from pymobiledevice3.lockdown import create_using_usbmux, create_using_tcp
-from pymobiledevice3.remote.remote_service_discovery import RemoteServiceDiscoveryService
-from pymobiledevice3.remote.tunnel_service import CoreDeviceTunnelProxy
-from pymobiledevice3.services.dvt.instruments.dvt_provider import DvtProvider
-from pymobiledevice3.services.dvt.instruments.location_simulation import LocationSimulation
-from pymobiledevice3.services.simulate_location import DtSimulateLocation
-from pymobiledevice3.usbmux import list_devices
+from pymobiledevice3.lockdown import create_using_usbmux, create_using_tcp  # type: ignore[import-untyped]
+from pymobiledevice3.remote.remote_service_discovery import RemoteServiceDiscoveryService  # type: ignore[import-untyped]
+from pymobiledevice3.remote.tunnel_service import CoreDeviceTunnelProxy  # type: ignore[import-untyped]
+from pymobiledevice3.services.dvt.instruments.dvt_provider import DvtProvider  # type: ignore[import-untyped]
+from pymobiledevice3.services.dvt.instruments.location_simulation import LocationSimulation  # type: ignore[import-untyped]
+from pymobiledevice3.services.simulate_location import DtSimulateLocation  # type: ignore[import-untyped]
+from pymobiledevice3.usbmux import list_devices  # type: ignore[import-untyped]
 
 from config import DEVICE_NAMES_FILE
 from models.schemas import DeviceInfo
@@ -104,7 +104,7 @@ class _ActiveConnection:
                           # after USB is unplugged (RemotePairing tunnel only).
     dvt_provider: Optional[DvtProvider] = None
     tunnel_proxy: Optional[CoreDeviceTunnelProxy] = None
-    tunnel_context: object = None  # async context manager for the tunnel
+    tunnel_context: Any = None  # async context manager for the tunnel
     rsd: Optional[RemoteServiceDiscoveryService] = None
     location_service: Optional[LocationService] = None
     usbmux_lockdown: object = None  # Original lockdown client (for legacy fallback on iOS 17+)
@@ -391,7 +391,10 @@ class DeviceManager:
         # Close tunnel proxy.
         if conn.tunnel_proxy is not None:
             try:
-                conn.tunnel_proxy.close()
+                import inspect
+                r = conn.tunnel_proxy.close()
+                if r is not None and inspect.isawaitable(r):
+                    await r
             except Exception:
                 logger.exception("Error closing tunnel proxy for %s", udid)
 
@@ -424,6 +427,7 @@ class DeviceManager:
             return conn.location_service
 
         ver = _parse_ios_version(conn.ios_version)
+        loc: LocationService
         if ver >= (17, 0):
             loc = await self._create_dvt_location_service(conn)
         else:
@@ -449,7 +453,7 @@ class DeviceManager:
         dtservicehub isn't advertised.
         """
         try:
-            from pymobiledevice3.services.mobile_image_mounter import MobileImageMounterService
+            from pymobiledevice3.services.mobile_image_mounter import MobileImageMounterService  # type: ignore[import-untyped]
         except ImportError as exc:
             logger.warning(
                 "pymobiledevice3 mobile_image_mounter not importable (%s: %s); "
@@ -459,7 +463,7 @@ class DeviceManager:
 
         mounted = False
         try:
-            mounter = MobileImageMounterService(lockdown=conn.lockdown)
+            mounter = MobileImageMounterService(lockdown=cast(Any, conn.lockdown))
             try:
                 await mounter.connect()
                 mounted = await mounter.is_image_mounted("Personalized")
@@ -501,7 +505,7 @@ class DeviceManager:
     async def _ensure_classic_ddi_mounted(self, conn: _ActiveConnection) -> None:
         """Best-effort Developer Disk Image mount for iOS 16.x devices."""
         try:
-            import pymobiledevice3.services.mobile_image_mounter as mim
+            import pymobiledevice3.services.mobile_image_mounter as mim  # type: ignore[import-untyped]
         except ImportError as exc:
             logger.warning(
                 "mobile_image_mounter not importable for classic DDI (%s: %s); "
@@ -546,7 +550,7 @@ class DeviceManager:
 
         mounted = False
         try:
-            await asyncio.wait_for(mount_fn(conn.lockdown), timeout=120.0)
+            await asyncio.wait_for(cast(Any, mount_fn(cast(Any, conn.lockdown))), timeout=120.0)
             mounted = True
             logger.info("Classic DDI mounted successfully for %s", conn.udid)
         except Exception:
@@ -564,7 +568,7 @@ class DeviceManager:
 
     async def _create_dvt_location_service(
         self, conn: _ActiveConnection
-    ) -> DvtLocationService:
+    ) -> LocationService:
         """Spin up a DVT provider and hand it to ``DvtLocationService``.
 
         If DVT fails because the Developer Disk Image is not mounted,
@@ -577,7 +581,7 @@ class DeviceManager:
             logger.warning("DDI auto-mount failed; DVT may still fail", exc_info=True)
 
         try:
-            dvt = DvtProvider(conn.lockdown)
+            dvt = DvtProvider(cast(Any, conn.lockdown))
             await dvt.__aenter__()
             conn.dvt_provider = dvt
             logger.debug("DVT provider opened for %s", conn.udid)
@@ -684,6 +688,8 @@ class DeviceManager:
                 "請確認 WiFi tunnel 仍然活躍。"
             ) from last_exc
 
+        if rsd is None:
+            raise RuntimeError("RSD is None")
         peer = rsd.peer_info or {}
         props = peer.get("Properties", {})
         udid = props.get("UniqueDeviceID", "")
@@ -878,7 +884,7 @@ class DeviceManager:
 
             # USB, or WiFi with a live tunnel: try opening a new DvtProvider.
             try:
-                new_dvt = DvtProvider(conn.lockdown)
+                new_dvt = DvtProvider(cast(Any, conn.lockdown))
                 await new_dvt.__aenter__()
             except Exception as exc:
                 last_exc = exc

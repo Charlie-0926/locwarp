@@ -17,7 +17,7 @@ from services.geo_extras import (
     get_timezone,
     haversine_duration_matrix,
     optimize_order_exact,
-    optimize_order_nearest_neighbor,
+    optimize_order_2opt,
     osrm_table,
     valhalla_matrix,
 )
@@ -236,7 +236,7 @@ async def route_optimize(req: RouteOptimizeRequest):
     if len(req.waypoints) <= 8:
         order = optimize_order_exact(durations, req.keep_first)
     else:
-        order = optimize_order_nearest_neighbor(durations, req.keep_first)
+        order = optimize_order_2opt(durations, req.keep_first)
 
     reordered = [req.waypoints[i] for i in order]
     total_duration = 0.0

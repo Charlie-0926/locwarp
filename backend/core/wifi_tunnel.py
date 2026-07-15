@@ -34,7 +34,7 @@ class TunnelRunner:
         return self.task is not None and not self.task.done()
 
     async def _run(self, udid: str, ip: str, port: int) -> None:
-        from pymobiledevice3.remote.tunnel_service import (
+        from pymobiledevice3.remote.tunnel_service import (  # type: ignore[import-untyped]
             create_core_device_tunnel_service_using_remotepairing,
         )
         try:
@@ -125,18 +125,19 @@ class TunnelRunner:
         return dict(self.info or {})
 
     async def stop(self) -> None:
-        if not self.is_running():
+        task = self.task
+        if task is None or task.done():
             self.task = None
             self.info = None
             return
         self._stop.set()
         try:
-            await asyncio.wait_for(self.task, timeout=5.0)
+            await asyncio.wait_for(task, timeout=5.0)
         except asyncio.TimeoutError:
             logger.warning("Tunnel task did not exit in 5s; cancelling")
-            self.task.cancel()
+            task.cancel()
             try:
-                await self.task
+                await task
             except (asyncio.CancelledError, Exception):
                 pass
         except (asyncio.CancelledError, Exception):

@@ -33,8 +33,8 @@ class GpxService:
         # 1. Track points
         for track in gpx.tracks:
             for segment in track.segments:
-                for pt in segment.points:
-                    coords.append(Coordinate(lat=pt.latitude, lng=pt.longitude))
+                for pt_track in segment.points:
+                    coords.append(Coordinate(lat=pt_track.latitude, lng=pt_track.longitude))
 
         if coords:
             logger.info("Parsed %d track points from GPX", len(coords))
@@ -42,16 +42,16 @@ class GpxService:
 
         # 2. Route points
         for route in gpx.routes:
-            for pt in route.points:
-                coords.append(Coordinate(lat=pt.latitude, lng=pt.longitude))
+            for pt_route in route.points:
+                coords.append(Coordinate(lat=pt_route.latitude, lng=pt_route.longitude))
 
         if coords:
             logger.info("Parsed %d route points from GPX", len(coords))
             return coords
 
         # 3. Waypoints
-        for pt in gpx.waypoints:
-            coords.append(Coordinate(lat=pt.latitude, lng=pt.longitude))
+        for pt_waypoint in gpx.waypoints:
+            coords.append(Coordinate(lat=pt_waypoint.latitude, lng=pt_waypoint.longitude))
 
         logger.info("Parsed %d waypoints from GPX", len(coords))
         return coords

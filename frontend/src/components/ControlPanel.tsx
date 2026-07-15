@@ -122,6 +122,10 @@ interface ControlPanelProps {
   pauseRandomWalk?: { enabled: boolean; min: number; max: number };
   onPauseRandomWalkChange?: (v: { enabled: boolean; min: number; max: number }) => void;
   onRandomWalkRadiusChange: (radius: number) => void;
+  spiralRadius: number;
+  onSpiralRadiusChange: (radius: number) => void;
+  spiralSpacing: number;
+  onSpiralSpacingChange: (spacing: number) => void;
   randomWalkCenterMode?: 'fixed' | 'follow';
   onRandomWalkCenterModeChange?: (v: 'fixed' | 'follow') => void;
   forwardWalk?: { enabled: boolean; turnDeg: number };
@@ -150,6 +154,11 @@ interface ControlPanelProps {
   onJumpPreDelayChange?: (v: number) => void;
   jumpPostDelay?: number;
   onJumpPostDelayChange?: (v: number) => void;
+  jumpRandomWalk?: boolean;
+  onJumpRandomWalkChange?: (v: boolean) => void;
+  jumpRandomWalkRadius?: number;
+  onJumpRandomWalkRadiusChange?: (v: number) => void;
+  onApplyJumpSettings?: () => Promise<void> | void;
   // Incremented by any external source (e.g. map top-left library
   // button) to request the library panel be opened. useEffect on the
   // value toggles libraryOpen=true so the parent doesn't have to own
@@ -207,6 +216,11 @@ const modeIcons: Record<SimMode, JSX.Element> = {
       <path d="M2 12c2-3 4-1 6-4s2-5 4-2 3 4 5 1 3-4 5-1" />
     </svg>
   ),
+  [SimMode.Spiral]: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M21 12A9 9 0 0 0 12 3A9 9 0 0 0 3 12A9 9 0 0 0 12 21A6 6 0 0 0 18 15A3 3 0 0 0 15 12A1.5 1.5 0 0 0 13.5 13.5"/>
+    </svg>
+  ),
   [SimMode.Joystick]: (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
       <circle cx="12" cy="12" r="10" />
@@ -238,6 +252,7 @@ const modeLabelKeys: Record<SimMode, StringKey> = {
   [SimMode.RandomWalk]: 'mode.random_walk',
   [SimMode.Joystick]: 'mode.joystick',
   [SimMode.GoldDitto]: 'mode.goldditto',
+  [SimMode.Spiral]: 'mode.spiral',
 };
 
 const ControlPanel: React.FC<ControlPanelProps> = ({
@@ -307,6 +322,10 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
   pauseRandomWalk,
   onPauseRandomWalkChange,
   onRandomWalkRadiusChange,
+  spiralRadius,
+  onSpiralRadiusChange,
+  spiralSpacing,
+  onSpiralSpacingChange,
   randomWalkCenterMode = 'fixed',
   onRandomWalkCenterModeChange,
   forwardWalk = { enabled: false, turnDeg: 35 },
@@ -332,6 +351,11 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
   onJumpPreDelayChange,
   jumpPostDelay = 4,
   onJumpPostDelayChange,
+  jumpRandomWalk = false,
+  onJumpRandomWalkChange,
+  jumpRandomWalkRadius = 10,
+  onJumpRandomWalkRadiusChange,
+  onApplyJumpSettings,
   openLibraryToken,
   openLibraryTab,
 }) => {
@@ -523,7 +547,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                 </span>
               </button>
             ))}
-            {onStraightLineChange && (
+            {onStraightLineChange && simMode !== SimMode.Spiral && (
               <label
                 className="lw-checkbox"
                 title={t('panel.straight_line_tooltip')}
@@ -547,7 +571,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                 </span>
               </label>
             )}
-            {onRouteEngineChange && (
+            {onRouteEngineChange && simMode !== SimMode.Spiral && (
               <RouteEngineSelector
                 value={routeEngine}
                 onChange={onRouteEngineChange}
@@ -671,6 +695,51 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                       />
                       <span style={{ opacity: 0.7 }}>{t('panel.jump_delay_seconds')}</span>
                     </span>
+                    <label
+                      className="lw-checkbox"
+                      title={t('panel.jump_random_walk_tooltip')}
+                      style={{ fontSize: 11, padding: 0, background: 'transparent', border: 'none', marginLeft: 10 }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={jumpRandomWalk}
+                        onChange={(e) => onJumpRandomWalkChange?.(e.target.checked)}
+                      />
+                      <span className="lw-checkbox-box"></span>
+                      <span className="lw-checkbox-label" style={{ lineHeight: 1.15 }}>
+                        {t('panel.jump_random_walk')}
+                      </span>
+                    </label>
+                    {jumpRandomWalk && (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, opacity: 0.85, width: '100%', marginTop: 5 }}>
+                        {t('panel.random_walk_range')}
+                        <input
+                          type="number"
+                          step="1"
+                          min="0"
+                          value={jumpRandomWalkRadius}
+                          onChange={(e) => {
+                            const v = parseFloat(e.target.value)
+                            if (Number.isFinite(v) && v >= 0 && onJumpRandomWalkRadiusChange) onJumpRandomWalkRadiusChange(v)
+                          }}
+                          style={{
+                            width: 60, padding: '2px 6px', fontSize: 11,
+                            background: '#0f1218', color: '#e6e8ee',
+                            border: '1px solid rgba(255,255,255,0.12)', borderRadius: 4,
+                          }}
+                        />
+                        <span style={{ opacity: 0.7 }}>{t('panel.meters_radius')}</span>
+                      </span>
+                    )}
+                    {isRunning && onApplyJumpSettings && (
+                      <button
+                        className="action-btn primary"
+                        style={{ width: '100%', padding: '4px 8px', fontSize: 11, marginTop: 5 }}
+                        onClick={() => onApplyJumpSettings()}
+                      >
+                        {t('panel.apply_speed')}
+                      </button>
+                    )}
                   </>
                 )}
               </div>
@@ -680,6 +749,48 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
       </div>
 
       {modeExtraSection}
+
+      {/* Spiral Mode - shown when Spiral mode is selected */}
+      {simMode === SimMode.Spiral && (
+        <div className="section" style={{ margin: '0 0 8px 0' }}>
+          <div className="section-title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {modeIcons[SimMode.Spiral]}
+            {t('mode.spiral')}
+          </div>
+          <div className="section-content">
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 8 }}>
+              <div style={{ width: 100, fontSize: 12 }}>{t('panel.spiral_radius')}</div>
+              <input
+                type="number"
+                className="search-input"
+                value={spiralRadius}
+                onChange={(e) => {
+                  const v = parseInt(e.target.value)
+                  if (!isNaN(v) && v > 0) onSpiralRadiusChange(v)
+                }}
+                style={{ flex: 1 }}
+                min="10"
+                step="50"
+              />
+            </div>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <div style={{ width: 100, fontSize: 12 }}>{t('panel.spiral_spacing')}</div>
+              <input
+                type="number"
+                className="search-input"
+                value={spiralSpacing}
+                onChange={(e) => {
+                  const v = parseInt(e.target.value)
+                  if (!isNaN(v) && v > 0) onSpiralSpacingChange(v)
+                }}
+                style={{ flex: 1 }}
+                min="5"
+                step="5"
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Random Walk Radius - shown when RandomWalk mode is selected */}
       {simMode === SimMode.RandomWalk && (

@@ -65,6 +65,7 @@ function stateToMode(state: string): SimMode | null {
     case 'looping': return SimMode.Loop;
     case 'multi_stop': return SimMode.MultiStop;
     case 'random_walk': return SimMode.RandomWalk;
+    case 'spiral': return SimMode.Spiral;
     case 'joystick': return SimMode.Joystick;
     case 'teleport':
     case 'idle':
@@ -81,6 +82,7 @@ const modeLabelKeys: Record<SimMode, StringKey> = {
   [SimMode.RandomWalk]: 'mode.random_walk',
   [SimMode.Joystick]: 'mode.joystick',
   [SimMode.GoldDitto]: 'mode.goldditto',
+  [SimMode.Spiral]: 'mode.spiral',
 };
 
 function formatCooldown(seconds: number): string {

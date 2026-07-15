@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react'
+import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { useT } from './i18n'
 import { useWebSocket } from './hooks/useWebSocket'
@@ -61,6 +61,16 @@ const App: React.FC = () => {
   const sim = useSimulation(ws.subscribe, device.primaryDevice?.udid)
   const joystick = useJoystick(ws.sendMessage, sim.mode === SimMode.Joystick)
   const bm = useBookmarks()
+  const bookmarkPins = useMemo(
+    () => bm.bookmarks.map((b: any) => ({
+      id: b.id,
+      name: b.name,
+      lat: b.lat,
+      lng: b.lng,
+      country_code: b.country_code || '',
+    })),
+    [bm.bookmarks],
+  )
 
   const [savedRoutes, setSavedRoutes] = useState<any[]>([])
   const [routeCategories, setRouteCategories] = useState<any[]>([])
@@ -82,6 +92,28 @@ const App: React.FC = () => {
   const [cooldown, setCooldown] = useState(0)
   const [cooldownEnabled, setCooldownEnabled] = useState(false)
   const [randomWalkRadius, setRandomWalkRadius] = useState(500)
+  const [spiralRadius, setSpiralRadiusRaw] = useState<number>(() => {
+    try {
+      const raw = localStorage.getItem('locwarp.spiral_radius')
+      if (raw) return parseInt(raw) || 100
+    } catch { /* ignore */ }
+    return 100
+  })
+  const setSpiralRadius = useCallback((v: number) => {
+    setSpiralRadiusRaw(v)
+    try { localStorage.setItem('locwarp.spiral_radius', String(v)) } catch { /* ignore */ }
+  }, [])
+  const [spiralSpacing, setSpiralSpacingRaw] = useState<number>(() => {
+    try {
+      const raw = localStorage.getItem('locwarp.spiral_spacing')
+      if (raw) return parseInt(raw) || 5
+    } catch { /* ignore */ }
+    return 5
+  })
+  const setSpiralSpacing = useCallback((v: number) => {
+    setSpiralSpacingRaw(v)
+    try { localStorage.setItem('locwarp.spiral_spacing', String(v)) } catch { /* ignore */ }
+  }, [])
   const [clickToAddWaypoint, setClickToAddWaypointRaw] = useState<boolean>(() => {
     try { return localStorage.getItem('locwarp.click_to_add_waypoint') === '1' } catch { return false }
   })
@@ -192,6 +224,16 @@ const App: React.FC = () => {
   }, [showToast, t, sim, device])
   const [wpGenRadius, setWpGenRadius] = useState(300)
   const [wpGenCount, setWpGenCount] = useState(5)
+  // Run-only start index for waypoint routes. This does not mutate the
+  // waypoint list or saved route.
+  const [routeStartIndex, setRouteStartIndex] = useState(0)
+  useEffect(() => {
+    setRouteStartIndex((prev) => {
+      if (sim.waypoints.length < 2) return 0
+      const maxStart = sim.loopLapCount === 0 ? sim.waypoints.length - 2 : sim.waypoints.length - 1
+      return Math.max(0, Math.min(prev, maxStart))
+    })
+  }, [sim.waypoints.length, sim.loopLapCount])
 
   const generateWaypoints = useCallback((radius: number, count: number) => {
     if (!sim.currentPosition) {
@@ -237,6 +279,7 @@ const App: React.FC = () => {
       { lat, lng },
       ...ordered.map(({ lat, lng }) => ({ lat, lng })),
     ])
+    setRouteStartIndex(0)
   }, [sim, t])
 
   const handleGenerateRandomWaypoints = useCallback(() => {
@@ -510,6 +553,7 @@ const App: React.FC = () => {
         next.splice(target, 0, { lat: nlat, lng: nlng })
         return next
       })
+      setRouteStartIndex((prev) => (idx + 1 <= prev ? prev + 1 : prev))
       // If a multi-stop / loop is currently running, also push the
       // splice into every connected device's engine so each iPhone
       // walks the new waypoint as part of the active route (no need
@@ -772,10 +816,16 @@ const App: React.FC = () => {
 
   const handleClearWaypoints = useCallback(() => {
     sim.setWaypoints([])
+    setRouteStartIndex(0)
   }, [sim])
 
   const handleRemoveWaypoint = useCallback((index: number) => {
     sim.setWaypoints((prev: any[]) => prev.filter((_: any, i: number) => i !== index))
+    setRouteStartIndex((prev) => {
+      if (prev === index) return 0
+      if (index < prev) return prev - 1
+      return prev
+    })
   }, [sim])
 
   // Move a waypoint up / down inside the Loop / MultiStop list. waypoints[0]
@@ -784,8 +834,10 @@ const App: React.FC = () => {
   // can't be moved into position 0. Same idempotent pattern as the remove
   // handler: swap two entries inside the immutable list.
   const handleMoveWaypoint = useCallback((index: number, direction: -1 | 1) => {
+    const target = index + direction
+    if (index <= 0 || target <= 0) return
+    if (index >= sim.waypoints.length || target >= sim.waypoints.length) return
     sim.setWaypoints((prev: any[]) => {
-      const target = index + direction
       if (index <= 0 || target <= 0) return prev
       if (index >= prev.length || target >= prev.length) return prev
       const next = prev.slice()
@@ -793,6 +845,11 @@ const App: React.FC = () => {
       next[index] = next[target]
       next[target] = tmp
       return next
+    })
+    setRouteStartIndex((prevStart) => {
+      if (prevStart === index) return target
+      if (prevStart === target) return index
+      return prevStart
     })
   }, [sim])
 
@@ -807,6 +864,7 @@ const App: React.FC = () => {
     if (index <= 0 || index >= wps.length) return
     const trimmed = wps.slice(index)
     sim.setWaypoints(trimmed)
+    setRouteStartIndex(0)
     const start = trimmed[0]
     sim.setCurrentPosition({ lat: start.lat, lng: start.lng })
     const udids = device.connectedDevices.map((d) => d.udid)
@@ -874,6 +932,7 @@ const App: React.FC = () => {
       try { await sim.teleportAll(udids, first.lat, first.lng) } catch { /* ignore */ }
     }
     sim.setWaypoints(valid)
+    setRouteStartIndex(0)
     setRoutePasteOpen(false)
     setRoutePasteText('')
     showToast(t('panel.route_paste_done').replace('{count}', String(valid.length)))
@@ -924,24 +983,26 @@ const App: React.FC = () => {
       return
     }
     const udids = device.connectedDevices.map((d) => d.udid)
+    const maxRunStart = sim.loopLapCount === 0 ? route.length - 2 : route.length - 1
+    const runStartIndex = Math.max(0, Math.min(routeStartIndex, maxRunStart))
     // 圈數: 0 = single pass (original 多點導航 → multiStop backend),
     // null = infinite loop, N>0 = N laps (both via startLoop backend).
     if (sim.loopLapCount === 0) {
       if (udids.length >= 2) {
-        const outcome = await sim.multiStopAll(udids, route, 0, false)
+        const outcome = await sim.multiStopAll(udids, route, 0, false, runStartIndex)
         showToast(toastForFanout(t, t('mode.loop'), outcome, device.connectedDevices))
       } else {
-        sim.multiStop(route, 0, false)
+        sim.multiStop(route, 0, false, runStartIndex)
       }
     } else {
       if (udids.length >= 2) {
-        const outcome = await sim.startLoopAll(udids, route)
+        const outcome = await sim.startLoopAll(udids, route, runStartIndex)
         showToast(toastForFanout(t, t('mode.loop'), outcome, device.connectedDevices))
       } else {
-        sim.startLoop(route)
+        sim.startLoop(route, runStartIndex)
       }
     }
-  }, [sim, device, showToast, t])
+  }, [sim, device, showToast, t, routeStartIndex])
 
   // -- ControlPanel handlers --
   const handleStart = useCallback(async () => {
@@ -970,12 +1031,23 @@ const App: React.FC = () => {
       } else {
         sim.randomWalk(sim.currentPosition, randomWalkRadius)
       }
+    } else if (sim.mode === SimMode.Spiral) {
+      if (!sim.currentPosition) {
+        showToast(t('toast.no_position_random'))
+        return
+      }
+      if (udids.length >= 2) {
+        const outcome = await sim.startSpiralAll(udids, sim.currentPosition, spiralRadius, spiralSpacing)
+        showToast(toastForFanout(t, t('mode.spiral'), outcome, device.connectedDevices))
+      } else {
+        sim.startSpiral(sim.currentPosition, spiralRadius, spiralSpacing)
+      }
     } else if (sim.mode === SimMode.Loop || sim.mode === SimMode.MultiStop) {
       handleStartWaypointRoute()
     } else if (sim.mode === SimMode.GoldDitto) {
       handleGoldDittoStart()
     }
-  }, [sim, device, randomWalkRadius, handleStartWaypointRoute, handleGoldDittoStart, showToast, t])
+  }, [sim, device, randomWalkRadius, spiralRadius, spiralSpacing, handleStartWaypointRoute, handleGoldDittoStart, showToast, t])
 
   const handleStop = useCallback(async () => {
     // Stop the active movement only — keep the simulated location in place
@@ -1021,6 +1093,7 @@ const App: React.FC = () => {
     // the app stays in 瞬間移動 (the launch default) and pressing 開始 does
     // nothing because that mode has no waypoint-route handler.
     sim.loadRoute(waypoints)
+    setRouteStartIndex(0)
     // Remember which route is loaded so the panel can show its name.
     setLoadedRouteName(routeLoadConfirm.name || null)
     if (flyToStart && waypoints.length > 0) {
@@ -1668,6 +1741,10 @@ const App: React.FC = () => {
           pauseRandomWalk={sim.pauseRandomWalk}
           onPauseRandomWalkChange={sim.setPauseRandomWalk}
           onRandomWalkRadiusChange={setRandomWalkRadius}
+          spiralRadius={spiralRadius}
+          onSpiralRadiusChange={setSpiralRadius}
+          spiralSpacing={spiralSpacing}
+          onSpiralSpacingChange={setSpiralSpacing}
           randomWalkCenterMode={sim.randomWalkCenterMode}
           onRandomWalkCenterModeChange={sim.setRandomWalkCenterMode}
           forwardWalk={sim.forwardWalk}
@@ -1692,8 +1769,79 @@ const App: React.FC = () => {
           onJumpPreDelayChange={sim.setJumpPreDelay}
           jumpPostDelay={sim.jumpPostDelay}
           onJumpPostDelayChange={sim.setJumpPostDelay}
+          jumpRandomWalk={sim.jumpRandomWalk}
+          onJumpRandomWalkChange={sim.setJumpRandomWalk}
+          jumpRandomWalkRadius={sim.jumpRandomWalkRadius}
+          onJumpRandomWalkRadiusChange={sim.setJumpRandomWalkRadius}
+          onApplyJumpSettings={async () => {
+            const udids = device.connectedDevices.map((d) => d.udid)
+            if (udids.length >= 2) {
+              const outcome = await sim.applyJumpSettingsAll(udids)
+              showToast(toastForFanout(t, t('panel.apply_speed_success'), outcome, device.connectedDevices))
+            } else {
+              await api.applyJumpSettings(sim.jumpRandomWalk, sim.jumpRandomWalkRadius)
+              showToast(t('panel.apply_speed_success'))
+            }
+          }}
           openLibraryToken={openLibraryToken}
           modeExtraSection={sim.mode === SimMode.Loop ? (
+          <>
+          {(() => {
+            const lap = sim.loopLapCount
+            return (
+              <div className="section" style={{ margin: '0 0 8px 0' }}>
+                <div className="section-title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M17 1l4 4-4 4" />
+                    <path d="M3 11V9a4 4 0 014-4h14" />
+                    <path d="M7 23l-4-4 4-4" />
+                    <path d="M21 13v2a4 4 0 01-4 4H3" />
+                  </svg>
+                  {t('mode.loop')} / {t('loop.lap_count_label')}
+                </div>
+                <div className="section-content" style={{ display: 'grid', gap: 8 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '64px 1fr', gap: 8, alignItems: 'center' }}>
+                    <input
+                      type="number"
+                      className="lw-input"
+                      min={0}
+                      placeholder={t('loop.lap_count_placeholder')}
+                      value={lap ?? ''}
+                      onChange={(e) => {
+                        const raw = e.target.value.trim()
+                        if (raw === '') { sim.setLoopLapCount(null); return }
+                        const n = parseInt(raw, 10)
+                        sim.setLoopLapCount(Number.isFinite(n) && n >= 0 ? n : 0)
+                      }}
+                      title={t('loop.lap_count_tooltip')}
+                    />
+                    <span style={{ opacity: 0.72, fontSize: 11 }}>
+                      {lap == null ? t('loop.lap_hint_infinite') : lap === 0 ? t('loop.lap_hint_single') : t('loop.lap_hint_n', { n: lap })}
+                    </span>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 6 }}>
+                    <button className="action-btn" style={{ padding: '4px 6px', fontSize: 11 }} onClick={() => sim.setLoopLapCount(0)}>
+                      {t('loop.lap_hint_single')}
+                    </button>
+                    <button className="action-btn" style={{ padding: '4px 6px', fontSize: 11 }} onClick={() => sim.setLoopLapCount(3)}>
+                      {t('loop.lap_hint_n', { n: 3 })}
+                    </button>
+                    <button className="action-btn" style={{ padding: '4px 6px', fontSize: 11 }} onClick={() => sim.setLoopLapCount(null)}>
+                      {t('loop.lap_hint_infinite')}
+                    </button>
+                  </div>
+                  {sim.lapProgress && (
+                    <div style={{ opacity: 0.66, fontSize: 11 }}>
+                      {t('loop.lap_progress', {
+                        current: sim.lapProgress?.current ?? 0,
+                        total: sim.lapProgress.total ?? t('loop.lap_count_placeholder'),
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )
+          })()}
           <div className="section" style={{ margin: '0 0 8px 0' }}>
             <div className="section-title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -1710,43 +1858,6 @@ const App: React.FC = () => {
                 value={sim.pauseLoop}
                 onChange={sim.setPauseLoop}
               />
-              {(() => {
-                const lap = sim.loopLapCount // null = 無限, 0 = 單程(原多點), N = N 圈
-                return (
-                <div style={{
-                  marginBottom: 6, fontSize: 11,
-                  display: 'flex', alignItems: 'center', gap: 8,
-                }}>
-                  <span style={{ opacity: 0.7, whiteSpace: 'nowrap' }}>{t('loop.lap_count_label')}</span>
-                  <input
-                    type="number"
-                    className="lw-input"
-                    min={0}
-                    placeholder={t('loop.lap_count_placeholder')}
-                    value={lap ?? ''}
-                    onChange={(e) => {
-                      const raw = e.target.value.trim()
-                      if (raw === '') { sim.setLoopLapCount(null); return }
-                      const n = parseInt(raw, 10)
-                      sim.setLoopLapCount(Number.isFinite(n) && n >= 0 ? n : 0)
-                    }}
-                    style={{ width: 64 }}
-                    title={t('loop.lap_count_tooltip')}
-                  />
-                  <span style={{ opacity: 0.5, fontSize: 10 }}>
-                    {lap == null ? t('loop.lap_hint_infinite') : lap === 0 ? t('loop.lap_hint_single') : t('loop.lap_hint_n', { n: lap })}
-                  </span>
-                  {sim.lapProgress && (
-                    <span style={{ opacity: 0.6, fontSize: 10, marginLeft: 'auto' }}>
-                      {t('loop.lap_progress', {
-                        current: sim.lapProgress.current,
-                        total: sim.lapProgress.total ?? '∞',
-                      })}
-                    </span>
-                  )}
-                </div>
-                )
-              })()}
               <div style={{ marginBottom: 6, fontSize: 11 }}>
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4 }}>
                   <span style={{ opacity: 0.7, width: 36 }}>{t('panel.waypoints_radius')}</span>
@@ -1833,7 +1944,8 @@ const App: React.FC = () => {
                 if (!collapsed) {
                   indices = sim.waypoints.map((_: any, i: number) => i)
                 } else {
-                  const base = seg != null ? Math.min(seg + 1, total - 1) : 0
+                  const nextWp = sim.waypointProgress?.next
+                  const base = nextWp != null ? nextWp : (seg != null ? Math.min(seg + 1, total - 1) : 0)
                   indices = Array.from(new Set([base, base + 1].filter((i) => i >= 0 && i < total)))
                 }
                 return indices.map((i) => {
@@ -1842,17 +1954,20 @@ const App: React.FC = () => {
                 // device location at add-time). Backend seg_idx N = traveling
                 // from waypoints[N] toward waypoints[N+1]; the *target* of
                 // that segment is waypoints[N+1], so highlight i == seg+1.
-                const approaching = seg != null && i === seg + 1
-                const passed = seg != null && i <= seg
+                const nextWp = sim.waypointProgress?.next
+                const approaching = nextWp != null ? i === nextWp : (seg != null && i === seg + 1)
+                const passed = seg != null && i <= seg && !(sim.loopLapCount !== 0 && routeStartIndex > 0)
                 const isStart = i === 0;
+                const isRunStart = i === routeStartIndex;
+                const canRunStart = sim.loopLapCount === 0 ? i < sim.waypoints.length - 1 : sim.waypoints.length > 1;
                 return (
                   <div
                     key={i}
                     style={{
                       display: 'flex', alignItems: 'center', gap: 6, padding: '3px 6px', fontSize: 12,
                       borderRadius: 4, marginBottom: 2,
-                      background: approaching ? 'rgba(255, 152, 0, 0.18)' : 'transparent',
-                      border: approaching ? '1px solid rgba(255, 152, 0, 0.6)' : '1px solid transparent',
+                      background: approaching ? 'rgba(255, 152, 0, 0.18)' : isRunStart ? 'rgba(108, 140, 255, 0.14)' : 'transparent',
+                      border: approaching ? '1px solid rgba(255, 152, 0, 0.6)' : isRunStart ? '1px solid rgba(108, 140, 255, 0.55)' : '1px solid transparent',
                       opacity: passed ? 0.4 : 1,
                       transition: 'background 0.25s, border-color 0.25s',
                       animation: approaching ? 'wp-pulse 1.4s ease-in-out infinite' : undefined,
@@ -1873,6 +1988,30 @@ const App: React.FC = () => {
                       onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.textDecoration = 'underline'; }}
                       onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.textDecoration = 'none'; }}
                     >{wp.lat.toFixed(5)}, {wp.lng.toFixed(5)}</button>
+                    {isRunStart && canRunStart && (
+                      <span
+                        title={t('panel.waypoints_run_start')}
+                        style={{
+                          padding: '2px 5px',
+                          borderRadius: 4,
+                          background: 'rgba(108, 140, 255, 0.2)',
+                          color: '#b9c6ff',
+                          fontSize: 10,
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {t('panel.waypoints_run_start_selected')}
+                      </span>
+                    )}
+                    {!isRunStart && canRunStart && (
+                      <button
+                        className="action-btn"
+                        style={{ padding: '2px 5px', fontSize: 10, whiteSpace: 'nowrap' }}
+                        onClick={() => setRouteStartIndex(i)}
+                        disabled={sim.status?.running}
+                        title={t('panel.waypoints_run_start')}
+                      >{t('panel.waypoints_run_start_short')}</button>
+                    )}
                     {!isStart && (
                       <>
                         <button
@@ -1944,6 +2083,7 @@ const App: React.FC = () => {
                           )
                           if (res?.waypoints?.length) {
                             sim.setWaypoints(res.waypoints)
+                            setRouteStartIndex(0)
                             const baseMsg = t('toast.route_optimized')
                             // When the duration matrix fell back to
                             // haversine (all road-aware engines down),
@@ -1965,6 +2105,7 @@ const App: React.FC = () => {
               )}
             </div>
           </div>
+          </>
           ) : null}
         />
         </div>
@@ -2140,6 +2281,7 @@ const App: React.FC = () => {
           routePath={sim.routePath}
           randomWalkRadius={
             sim.mode === SimMode.RandomWalk ? randomWalkRadius :
+            sim.mode === SimMode.Spiral ? spiralRadius :
             (sim.mode === SimMode.Loop || sim.mode === SimMode.MultiStop) ? wpGenRadius :
             null
           }
@@ -2151,6 +2293,8 @@ const App: React.FC = () => {
           onAddBookmark={handleAddBookmark}
           onAddWaypoint={handleAddWaypoint}
           onSetWpAsStart={handleSetWpAsStart}
+          onSetWpRunStart={setRouteStartIndex}
+          allowLastWpRunStart={sim.loopLapCount !== 0}
           onRemoveWaypoint={handleRemoveWaypoint}
           onInsertAfterWp={handleInsertAfterWp}
           insertAfterActive={insertAfterIndex !== null}
@@ -2158,9 +2302,7 @@ const App: React.FC = () => {
           deviceConnected={device.connectedDevice !== null}
           onShowToast={showToast}
           userAvatarHtml={avatarToHtml(userAvatar, customPng)}
-          bookmarkPins={bm.bookmarks.map((b: any) => ({
-            id: b.id, name: b.name, lat: b.lat, lng: b.lng, country_code: b.country_code || '',
-          }))}
+          bookmarkPins={bookmarkPins}
           showBookmarkPins={showBookmarkPins}
           onMapReady={(api) => { mapApiRef.current = api }}
           previewPin={previewPin}

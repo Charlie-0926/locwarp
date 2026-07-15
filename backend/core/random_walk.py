@@ -6,11 +6,11 @@ import asyncio
 import logging
 import random
 
-from pymobiledevice3.exceptions import ConnectionTerminatedError
+from pymobiledevice3.exceptions import ConnectionTerminatedError  # type: ignore[import-untyped]
 
 from models.schemas import Coordinate, MovementMode, SimulationState
 from services.interpolator import RouteInterpolator
-from config import resolve_speed_profile
+from config import resolve_speed_profile, SpeedProfile
 
 logger = logging.getLogger(__name__)
 
@@ -164,8 +164,9 @@ class RandomWalkHandler:
                         "coords": [{"lat": c.lat, "lng": c.lng} for c in coords],
                     })
                     # Honor mid-flight apply_speed; otherwise re-pick per leg.
+                    speed_profile: SpeedProfile
                     if engine._speed_was_applied and engine._active_speed_profile is not None:
-                        speed_profile = dict(engine._active_speed_profile)
+                        speed_profile = engine._active_speed_profile
                     else:
                         speed_profile = resolve_speed_profile(
                             profile_name, speed_kmh, speed_min_kmh, speed_max_kmh,

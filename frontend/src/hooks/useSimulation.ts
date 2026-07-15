@@ -11,6 +11,7 @@ export enum SimMode {
   MultiStop = 'multistop',
   RandomWalk = 'randomwalk',
   GoldDitto = 'goldditto',
+  Spiral = 'spiral',
 }
 
 export enum MoveMode {
@@ -330,6 +331,26 @@ export function useSimulation(subscribe?: WsSubscribe, primaryUdid?: string | nu
     const clamped = Number.isFinite(v) && v >= 0 ? v : 4
     setJumpPostDelayRaw(clamped)
     try { localStorage.setItem('locwarp.jump.post_delay', String(clamped)) } catch { /* ignore */ }
+  }, [])
+
+  const [jumpRandomWalk, setJumpRandomWalkRaw] = useState<boolean>(() => {
+    try { return localStorage.getItem('locwarp.jump.random_walk') === '1' } catch { return false }
+  })
+  const setJumpRandomWalk = useCallback((v: boolean) => {
+    setJumpRandomWalkRaw(v)
+    try { localStorage.setItem('locwarp.jump.random_walk', v ? '1' : '0') } catch { /* ignore */ }
+  }, [])
+
+  const [jumpRandomWalkRadius, setJumpRandomWalkRadiusRaw] = useState<number>(() => {
+    try {
+      const n = parseFloat(localStorage.getItem('locwarp.jump.random_walk_radius') || '10')
+      return Number.isFinite(n) && n >= 0 ? n : 10
+    } catch { return 10 }
+  })
+  const setJumpRandomWalkRadius = useCallback((v: number) => {
+    const clamped = Number.isFinite(v) && v >= 0 ? v : 10
+    setJumpRandomWalkRadiusRaw(clamped)
+    try { localStorage.setItem('locwarp.jump.random_walk_radius', String(clamped)) } catch { /* ignore */ }
   }, [])
   // What's *actually* running on the device — set when a route handler
   // starts or when applySpeed succeeds. Used by the status bar so the
@@ -719,7 +740,7 @@ export function useSimulation(subscribe?: WsSubscribe, primaryUdid?: string | nu
   )
 
   const startLoop = useCallback(
-    async (wps: LatLng[]) => {
+    async (wps: LatLng[], startIndex: number = 0) => {
       setError(null)
       try {
         _setMode(SimMode.Loop)
@@ -729,7 +750,7 @@ export function useSimulation(subscribe?: WsSubscribe, primaryUdid?: string | nu
         // and break the backend↔UI seg_idx mapping for highlighting.
         setProgress(0)
         setLapProgress(null)
-        const res = await api.startLoop(wps, moveMode, { speed_kmh: customSpeedKmh, speed_min_kmh: speedMinKmh, speed_max_kmh: speedMaxKmh }, { pause_enabled: pauseLoop.enabled, pause_min: pauseLoop.min, pause_max: pauseLoop.max }, undefined, straightLine, loopLapCount, routeEngine, { jump_mode: jumpMode, jump_pre_delay: jumpPreDelay, jump_post_delay: jumpPostDelay })
+        const res = await api.startLoop(wps, moveMode, { speed_kmh: customSpeedKmh, speed_min_kmh: speedMinKmh, speed_max_kmh: speedMaxKmh }, { pause_enabled: pauseLoop.enabled, pause_min: pauseLoop.min, pause_max: pauseLoop.max }, undefined, straightLine, loopLapCount, routeEngine, { jump_mode: jumpMode, jump_pre_delay: jumpPreDelay, jump_post_delay: jumpPostDelay, jump_random_walk: jumpRandomWalk, jump_random_walk_radius: jumpRandomWalkRadius }, startIndex)
         setStatus((prev) => ({ ...prev, running: true, paused: false }))
         setEffectiveSpeed({ kmh: customSpeedKmh ?? MODE_DEFAULT_KMH[moveMode], min: speedMinKmh, max: speedMaxKmh })
         return res
@@ -738,11 +759,11 @@ export function useSimulation(subscribe?: WsSubscribe, primaryUdid?: string | nu
         throw err
       }
     },
-    [moveMode, customSpeedKmh, speedMinKmh, speedMaxKmh, pauseMultiStop, pauseLoop, pauseRandomWalk, straightLine, loopLapCount, routeEngine, jumpMode, jumpPreDelay, jumpPostDelay],
+    [moveMode, customSpeedKmh, speedMinKmh, speedMaxKmh, pauseMultiStop, pauseLoop, pauseRandomWalk, straightLine, loopLapCount, routeEngine, jumpMode, jumpPreDelay, jumpPostDelay, jumpRandomWalk, jumpRandomWalkRadius],
   )
 
   const multiStop = useCallback(
-    async (wps: LatLng[], stopDuration: number, loop: boolean) => {
+    async (wps: LatLng[], stopDuration: number, loop: boolean, startIndex: number = 0) => {
       setError(null)
       try {
         // 多點導航 is merged into the 路徑 (Loop) mode, so keep the UI mode on
@@ -750,7 +771,7 @@ export function useSimulation(subscribe?: WsSubscribe, primaryUdid?: string | nu
         _setMode(SimMode.Loop)
         // See startLoop — do not overwrite UI waypoints with the backend route.
         setProgress(0)
-        const res = await api.multiStop(wps, moveMode, stopDuration, loop, { speed_kmh: customSpeedKmh, speed_min_kmh: speedMinKmh, speed_max_kmh: speedMaxKmh }, { pause_enabled: pauseLoop.enabled, pause_min: pauseLoop.min, pause_max: pauseLoop.max }, undefined, straightLine, routeEngine, { jump_mode: jumpMode, jump_pre_delay: jumpPreDelay, jump_post_delay: jumpPostDelay })
+        const res = await api.multiStop(wps, moveMode, stopDuration, loop, { speed_kmh: customSpeedKmh, speed_min_kmh: speedMinKmh, speed_max_kmh: speedMaxKmh }, { pause_enabled: pauseLoop.enabled, pause_min: pauseLoop.min, pause_max: pauseLoop.max }, undefined, straightLine, routeEngine, { jump_mode: jumpMode, jump_pre_delay: jumpPreDelay, jump_post_delay: jumpPostDelay, jump_random_walk: jumpRandomWalk, jump_random_walk_radius: jumpRandomWalkRadius }, startIndex)
         setStatus((prev) => ({ ...prev, running: true, paused: false }))
         setEffectiveSpeed({ kmh: customSpeedKmh ?? MODE_DEFAULT_KMH[moveMode], min: speedMinKmh, max: speedMaxKmh })
         return res
@@ -759,7 +780,7 @@ export function useSimulation(subscribe?: WsSubscribe, primaryUdid?: string | nu
         throw err
       }
     },
-    [moveMode, customSpeedKmh, speedMinKmh, speedMaxKmh, pauseMultiStop, pauseLoop, pauseRandomWalk, straightLine, routeEngine, jumpMode, jumpPreDelay, jumpPostDelay],
+    [moveMode, customSpeedKmh, speedMinKmh, speedMaxKmh, pauseMultiStop, pauseLoop, pauseRandomWalk, straightLine, routeEngine, jumpMode, jumpPreDelay, jumpPostDelay, jumpRandomWalk, jumpRandomWalkRadius],
   )
 
   const randomWalk = useCallback(
@@ -778,6 +799,24 @@ export function useSimulation(subscribe?: WsSubscribe, primaryUdid?: string | nu
       }
     },
     [moveMode, customSpeedKmh, speedMinKmh, speedMaxKmh, pauseMultiStop, pauseLoop, pauseRandomWalk, straightLine, routeEngine, randomWalkCenterMode, forwardWalk],
+  )
+
+  const startSpiral = useCallback(
+    async (center: LatLng, radiusM: number, spacingM: number) => {
+      setError(null)
+      try {
+        _setMode(SimMode.Spiral)
+        setProgress(0)
+        const res = await api.startSpiral(center, radiusM, spacingM, moveMode, { speed_kmh: customSpeedKmh, speed_min_kmh: speedMinKmh, speed_max_kmh: speedMaxKmh }, undefined, straightLine, routeEngine)
+        setStatus((prev) => ({ ...prev, running: true, paused: false }))
+        setEffectiveSpeed({ kmh: customSpeedKmh ?? MODE_DEFAULT_KMH[moveMode], min: speedMinKmh, max: speedMaxKmh })
+        return res
+      } catch (err: any) {
+        setError(err.message)
+        throw err
+      }
+    },
+    [moveMode, customSpeedKmh, speedMinKmh, speedMaxKmh, straightLine, routeEngine],
   )
 
   const joystickStart = useCallback(async () => {
@@ -963,22 +1002,27 @@ export function useSimulation(subscribe?: WsSubscribe, primaryUdid?: string | nu
     await preSyncStart(udids)
     return fanout(udids, 'navigate', (u) => api.navigate(lat, lng, moveMode, { speed_kmh: customSpeedKmh, speed_min_kmh: speedMinKmh, speed_max_kmh: speedMaxKmh }, u, straightLine, routeEngine))
   }, [fanout, preSyncStart, moveMode, customSpeedKmh, speedMinKmh, speedMaxKmh, straightLine, routeEngine])
-  const startLoopAll = useCallback(async (udids: string[], wps: LatLng[]) => {
+  const startLoopAll = useCallback(async (udids: string[], wps: LatLng[], startIndex: number = 0) => {
     await preSyncStart(udids)
     setLapProgress(null)
-    return fanout(udids, 'loop', (u) => api.startLoop(wps, moveMode, { speed_kmh: customSpeedKmh, speed_min_kmh: speedMinKmh, speed_max_kmh: speedMaxKmh }, { pause_enabled: pauseLoop.enabled, pause_min: pauseLoop.min, pause_max: pauseLoop.max }, u, straightLine, loopLapCount, routeEngine, { jump_mode: jumpMode, jump_pre_delay: jumpPreDelay, jump_post_delay: jumpPostDelay }))
-  }, [fanout, preSyncStart, moveMode, customSpeedKmh, speedMinKmh, speedMaxKmh, pauseLoop, straightLine, loopLapCount, routeEngine, jumpMode, jumpPreDelay, jumpPostDelay])
-  const multiStopAll = useCallback(async (udids: string[], wps: LatLng[], dur: number, loop: boolean) => {
+    return fanout(udids, 'loop', (u) => api.startLoop(wps, moveMode, { speed_kmh: customSpeedKmh, speed_min_kmh: speedMinKmh, speed_max_kmh: speedMaxKmh }, { pause_enabled: pauseLoop.enabled, pause_min: pauseLoop.min, pause_max: pauseLoop.max }, u, straightLine, loopLapCount, routeEngine, { jump_mode: jumpMode, jump_pre_delay: jumpPreDelay, jump_post_delay: jumpPostDelay, jump_random_walk: jumpRandomWalk, jump_random_walk_radius: jumpRandomWalkRadius }, startIndex))
+  }, [fanout, preSyncStart, moveMode, customSpeedKmh, speedMinKmh, speedMaxKmh, pauseLoop, straightLine, loopLapCount, routeEngine, jumpMode, jumpPreDelay, jumpPostDelay, jumpRandomWalk, jumpRandomWalkRadius])
+  const multiStopAll = useCallback(async (udids: string[], wps: LatLng[], dur: number, loop: boolean, startIndex: number = 0) => {
     await preSyncStart(udids)
     // Single-pass path of the merged 路徑 mode — use the shared pauseLoop setting.
-    return fanout(udids, 'multistop', (u) => api.multiStop(wps, moveMode, dur, loop, { speed_kmh: customSpeedKmh, speed_min_kmh: speedMinKmh, speed_max_kmh: speedMaxKmh }, { pause_enabled: pauseLoop.enabled, pause_min: pauseLoop.min, pause_max: pauseLoop.max }, u, straightLine, routeEngine, { jump_mode: jumpMode, jump_pre_delay: jumpPreDelay, jump_post_delay: jumpPostDelay }))
-  }, [fanout, preSyncStart, moveMode, customSpeedKmh, speedMinKmh, speedMaxKmh, pauseLoop, straightLine, routeEngine, jumpMode, jumpPreDelay, jumpPostDelay])
+    return fanout(udids, 'multistop', (u) => api.multiStop(wps, moveMode, dur, loop, { speed_kmh: customSpeedKmh, speed_min_kmh: speedMinKmh, speed_max_kmh: speedMaxKmh }, { pause_enabled: pauseLoop.enabled, pause_min: pauseLoop.min, pause_max: pauseLoop.max }, u, straightLine, routeEngine, { jump_mode: jumpMode, jump_pre_delay: jumpPreDelay, jump_post_delay: jumpPostDelay, jump_random_walk: jumpRandomWalk, jump_random_walk_radius: jumpRandomWalkRadius }, startIndex))
+  }, [fanout, preSyncStart, moveMode, customSpeedKmh, speedMinKmh, speedMaxKmh, pauseLoop, straightLine, routeEngine, jumpMode, jumpPreDelay, jumpPostDelay, jumpRandomWalk, jumpRandomWalkRadius])
   const randomWalkAll = useCallback(async (udids: string[], center: LatLng, r: number) => {
     await preSyncStart(udids)
     // Shared seed → both engines produce identical destination sequences.
     const seed = udids.length >= 2 ? Date.now() : null
     return fanout(udids, 'randomwalk', (u) => api.randomWalk(center, r, moveMode, { speed_kmh: customSpeedKmh, speed_min_kmh: speedMinKmh, speed_max_kmh: speedMaxKmh }, { pause_enabled: pauseRandomWalk.enabled, pause_min: pauseRandomWalk.min, pause_max: pauseRandomWalk.max }, u, seed, straightLine, routeEngine, randomWalkCenterMode, forwardWalk))
   }, [fanout, preSyncStart, moveMode, customSpeedKmh, speedMinKmh, speedMaxKmh, pauseRandomWalk, straightLine, routeEngine, randomWalkCenterMode, forwardWalk])
+  const startSpiralAll = useCallback(async (udids: string[], center: LatLng, r: number, spacing: number) => {
+    await preSyncStart(udids)
+    return fanout(udids, 'spiral', (u) => api.startSpiral(center, r, spacing, moveMode, { speed_kmh: customSpeedKmh, speed_min_kmh: speedMinKmh, speed_max_kmh: speedMaxKmh }, u, straightLine, routeEngine))
+  }, [fanout, preSyncStart, moveMode, customSpeedKmh, speedMinKmh, speedMaxKmh, straightLine, routeEngine])
+
   const applySpeedAll = useCallback(async (udids: string[]) => {
     const outcome = await fanout(udids, 'apply-speed', (u) => api.applySpeed(moveMode, { speed_kmh: customSpeedKmh, speed_min_kmh: speedMinKmh, speed_max_kmh: speedMaxKmh }, u))
     if (outcome.ok.length > 0) {
@@ -986,6 +1030,11 @@ export function useSimulation(subscribe?: WsSubscribe, primaryUdid?: string | nu
     }
     return outcome
   }, [fanout, moveMode, customSpeedKmh, speedMinKmh, speedMaxKmh])
+
+  const applyJumpSettingsAll = useCallback(async (udids: string[]) => {
+    return fanout(udids, 'apply-jump-settings', (u) => api.applyJumpSettings(jumpRandomWalk, jumpRandomWalkRadius, u))
+  }, [fanout, jumpRandomWalk, jumpRandomWalkRadius])
+
   const pauseAll = useCallback((udids: string[]) => fanout(udids, 'pause', (u) => api.pauseSim(u)), [fanout])
   const resumeAll = useCallback((udids: string[]) => fanout(udids, 'resume', (u) => api.resumeSim(u)), [fanout])
   const stopAll = useCallback((udids: string[]) => fanout(udids, 'stop', (u) => api.stopSim(u)), [fanout])
@@ -1040,7 +1089,9 @@ export function useSimulation(subscribe?: WsSubscribe, primaryUdid?: string | nu
     startLoopAll,
     multiStopAll,
     randomWalkAll,
+    startSpiralAll,
     applySpeedAll,
+    applyJumpSettingsAll,
     pauseAll,
     resumeAll,
     stopAll,
@@ -1099,6 +1150,10 @@ export function useSimulation(subscribe?: WsSubscribe, primaryUdid?: string | nu
     setJumpPreDelay,
     jumpPostDelay,
     setJumpPostDelay,
+    jumpRandomWalk,
+    setJumpRandomWalk,
+    jumpRandomWalkRadius,
+    setJumpRandomWalkRadius,
     effectiveSpeed,
     applySpeed,
     error,
@@ -1109,6 +1164,7 @@ export function useSimulation(subscribe?: WsSubscribe, primaryUdid?: string | nu
     startLoop,
     multiStop,
     randomWalk,
+    startSpiral,
     joystickStart,
     joystickStop,
     pause,
