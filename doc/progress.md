@@ -1,5 +1,11 @@
 # 專案進度
 
+## 2026-07-15：建立 LocWarp 官方更新同步 Skill
+
+- 已在個人 Codex Skills 目錄建立 `locwarp-sync-upstream`，封裝 thin fork 的 upstream fetch、merge rehearsal、同步分支、衝突處理、客製功能稽核、驗證、文件更新、push 與 GitHub Actions 監看流程。
+- Skill 強制維持 `main` 為官方鏡像、`custom/main` 為客製發布分支，禁止直接污染客製主分支或使用 force push。
+- 已使用 Skill Creator 的 `quick_validate.py` 驗證，結果為 `Skill is valid!`。
+
 ## 2026-07-15：完成 thin fork 客製擴充邊界強化
 
 - GitHub Actions 最終通過：extension pytest、全 backend Mypy、backend Pyright、frontend TypeScript 與 production build 全部成功。首次執行找到的 Windows `ctypes` 平台型別及 GPX loop variable narrowing 共 10 項錯誤已修正。
