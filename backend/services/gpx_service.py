@@ -67,10 +67,10 @@ class GpxService:
         gpx = gpxpy.parse(gpx_content)
         points: list[dict] = []
 
-        for pt in gpx.waypoints:
+        for waypoint in gpx.waypoints:
             points.append({
-                "lat": pt.latitude, "lng": pt.longitude,
-                "name": pt.name or "", "description": pt.description or "",
+                "lat": waypoint.latitude, "lng": waypoint.longitude,
+                "name": waypoint.name or "", "description": waypoint.description or "",
             })
         if points:
             logger.info("Parsed %d named waypoints from GPX", len(points))
@@ -78,15 +78,15 @@ class GpxService:
 
         for track in gpx.tracks:
             for segment in track.segments:
-                for pt in segment.points:
-                    points.append({"lat": pt.latitude, "lng": pt.longitude,
+                for track_point in segment.points:
+                    points.append({"lat": track_point.latitude, "lng": track_point.longitude,
                                    "name": "", "description": ""})
         if points:
             return points
 
         for route in gpx.routes:
-            for pt in route.points:
-                points.append({"lat": pt.latitude, "lng": pt.longitude,
+            for route_point in route.points:
+                points.append({"lat": route_point.latitude, "lng": route_point.longitude,
                                "name": "", "description": ""})
         return points
 

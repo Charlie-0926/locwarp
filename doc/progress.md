@@ -2,6 +2,7 @@
 
 ## 2026-07-15：完成 thin fork 客製擴充邊界強化
 
+- 首次 GitHub Actions 執行中，extension pytest 與 frontend TypeScript/build 通過；Linux Mypy 找到 Windows `ctypes` 平台型別及 GPX loop variable narrowing 共 10 項錯誤，已完成跨平台型別修正並通過本機 Pyright，待重新推送驗證。
 - 將 Jump Random Walk 的 backend dwell policy/schema/router 與 frontend API/control UI 移至客製 extension。
 - 將 2-opt 演算法與 frontend adapter 移至 route optimizer extension，並加入單元測試。
 - 將多裝置 backend coordinator 及 frontend runtime/fan-out/synchronize-start 移至 extension；同時修正 ETA tracker 鏡像寫入唯讀 property 的問題。

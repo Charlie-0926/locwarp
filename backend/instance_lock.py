@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 import tempfile
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, TextIO, cast
 
 
 class SingleInstanceLock:
@@ -22,7 +22,7 @@ class SingleInstanceLock:
     def __init__(self, name: str) -> None:
         self.name = name
         self._handle: Any = None
-        self._file = None
+        self._file: TextIO | None = None
         self._acquired = False
 
     def acquire(self) -> bool:
@@ -37,7 +37,8 @@ class SingleInstanceLock:
         import ctypes
         from ctypes import wintypes
 
-        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        ctypes_api = cast(Any, ctypes)
+        kernel32 = ctypes_api.WinDLL("kernel32", use_last_error=True)
         kernel32.CreateMutexW.argtypes = [
             wintypes.LPVOID,
             wintypes.BOOL,
@@ -46,13 +47,13 @@ class SingleInstanceLock:
         kernel32.CreateMutexW.restype = wintypes.HANDLE
         kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
         kernel32.CloseHandle.restype = wintypes.BOOL
-        ctypes.set_last_error(0)
+        ctypes_api.set_last_error(0)
         handle = kernel32.CreateMutexW(None, False, self.name)
         if not handle:
-            error = ctypes.get_last_error()
+            error = ctypes_api.get_last_error()
             raise OSError(error, f"CreateMutexW failed for {self.name!r}")
 
-        if ctypes.get_last_error() == self._WINDOWS_ALREADY_EXISTS:
+        if ctypes_api.get_last_error() == self._WINDOWS_ALREADY_EXISTS:
             kernel32.CloseHandle(handle)
             return False
 
@@ -91,7 +92,8 @@ class SingleInstanceLock:
             from ctypes import wintypes
 
             if self._handle:
-                kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+                ctypes_api = cast(Any, ctypes)
+                kernel32 = ctypes_api.WinDLL("kernel32", use_last_error=True)
                 kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
                 kernel32.CloseHandle.restype = wintypes.BOOL
                 kernel32.CloseHandle(self._handle)

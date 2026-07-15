@@ -17,6 +17,7 @@
 
 ## 驗證
 
+- 首次 GitHub Actions：extension pytest 與 frontend job 通過；Mypy 揭露 `instance_lock.py` 的跨平台 `ctypes` stubs 差異及 `gpx_service.py` 的 loop variable 型別收窄，已修正後重跑。
 - Extension boundaries：通過。
 - Backend Pyright：0 errors、0 warnings。
 - Frontend TypeScript：通過。
