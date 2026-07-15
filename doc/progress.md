@@ -1,6 +1,9 @@
 # 專案進度
 
 ## 2026-07-15: 官方版本同步與客製模組化架構盤點
+- 已提交既有客製快照 `d18ba45`，後續架構調整不再與歷史客製差異混在同一 commit。
+- 完成第一個實際 extension 遷移：backend 新增 `extensions` registry 並將 Spiral handler/schema 移入 `backend/extensions/custom/spiral/`；frontend 將 Spiral API adapter、descriptor 與設定面板移入 `frontend/src/extensions/custom/spiral/`。
+- Spiral 在核心的接點已縮減為 handler registry lookup、API router import 與前端元件／呼叫 adapter；Pyright 0 errors、TypeScript `tsc --noEmit` 通過、Vite production build 通過（僅既有 chunk/dynamic import 警告）。
 - 已恢復原本空白的 `.git`：下載官方完整歷史與 tags，以官方 v0.2.177 (`53042c6`) 作為客製共同基底。
 - 已建立 `custom/main` 保存目前客製工作樹；本機 `main` 已追蹤乾淨的 `upstream/main` v0.2.190，並啟用 `git rerere` 與 `zdiff3` 衝突格式。
 - 新增 `doc/custom-feature-ledger.md`，將功能分類為 local-only、upstream-candidate、available-upstream 與 integration。

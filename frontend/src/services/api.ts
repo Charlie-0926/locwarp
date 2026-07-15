@@ -96,7 +96,7 @@ function formatError(detail: unknown, fallback: string): string {
   return maybeAttachDevModeHint(fallback)
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+export async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const opts: RequestInit = {
     method,
     headers: { 'Content-Type': 'application/json' },
@@ -192,8 +192,6 @@ export const multiStop = (waypoints: { lat: number; lng: number }[], mode: strin
   request<any>('POST', '/api/location/multistop', { waypoints, mode, stop_duration, loop, ...sp(speed), ...pp(pause), ...sl(straightLine), ...re(routeEngine), ...ud(udid), ...jm(jump), ...(startIndex != null && startIndex > 0 ? { start_index: startIndex } : {}) })
 export const randomWalk = (center: { lat: number; lng: number }, radius_m: number, mode: string, speed?: SpeedOpts, pause?: PauseOpts, udid?: string, seed?: number | null, straightLine?: boolean, routeEngine?: string, centerMode?: string, forward?: { enabled: boolean; turnDeg: number }) =>
   request<any>('POST', '/api/location/randomwalk', { center, radius_m, mode, ...sp(speed), ...pp(pause), ...sl(straightLine), ...re(routeEngine), ...ud(udid), ...(seed != null ? { seed } : {}), ...(centerMode ? { center_mode: centerMode } : {}), ...(forward?.enabled ? { forward_enabled: true, forward_turn_deg: forward.turnDeg } : {}) })
-export const startSpiral = (center: { lat: number; lng: number }, radius_m: number, spacing_m: number, mode: string, speed?: SpeedOpts, udid?: string, straightLine?: boolean, routeEngine?: string) =>
-  request<any>('POST', '/api/location/spiral', { center, radius_m, spacing_m, mode, ...sp(speed), ...sl(straightLine), ...re(routeEngine), ...ud(udid) })
 export const joystickStart = (mode: string, udid?: string) =>
   request<any>('POST', '/api/location/joystick/start', { mode, ...ud(udid) })
 export const joystickStop = (udid?: string) => request<any>('POST', `/api/location/joystick/stop${qs(udid)}`)

@@ -28,7 +28,7 @@ from core.multi_stop import MultiStopNavigator
 from core.random_walk import RandomWalkHandler
 from core.restore import RestoreHandler
 from core.goldditto import GoldDittoHandler
-from core.spiral_walk import SpiralWalkHandler
+from extensions import build_extension_handlers
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +128,9 @@ class SimulationEngine:
         self._random_walk = RandomWalkHandler(self)
         self._restore_handler = RestoreHandler(self)
         self._goldditto_handler = GoldDittoHandler(self)
-        self._spiral_handler = SpiralWalkHandler(self)
+        # Locally maintained modes are bound through one stable extension seam.
+        self.extensions = build_extension_handlers(self)
+        self._spiral_handler = self.extensions.require("spiral")
 
         # Status tracking
         self.distance_traveled: float = 0.0

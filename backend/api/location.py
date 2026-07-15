@@ -10,7 +10,6 @@ from models.schemas import (
     LoopRequest,
     MultiStopRequest,
     RandomWalkRequest,
-    SpiralRequest,
     JoystickStartRequest,
     GoldDittoCycleRequest,
     ApplyJumpSettingsRequest,
@@ -22,6 +21,7 @@ from models.schemas import (
     CoordFormatRequest,
     CoordinateFormat,
 )
+from extensions.custom.spiral.schema import SpiralRequest
 
 router = APIRouter(prefix="/api/location", tags=["location"])
 

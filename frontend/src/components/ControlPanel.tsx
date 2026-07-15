@@ -34,6 +34,7 @@ import { SimMode, MoveMode } from '../hooks/useSimulation';
 import AddressSearch from './AddressSearch';
 import BookmarkList from './BookmarkList';
 import RouteList, { RouteCategory, SavedRoute } from './RouteList';
+import { SpiralSettingsPanel } from '../extensions/custom/spiral';
 
 interface Position {
   lat: number;
@@ -750,46 +751,14 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
 
       {modeExtraSection}
 
-      {/* Spiral Mode - shown when Spiral mode is selected */}
       {simMode === SimMode.Spiral && (
-        <div className="section" style={{ margin: '0 0 8px 0' }}>
-          <div className="section-title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            {modeIcons[SimMode.Spiral]}
-            {t('mode.spiral')}
-          </div>
-          <div className="section-content">
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 8 }}>
-              <div style={{ width: 100, fontSize: 12 }}>{t('panel.spiral_radius')}</div>
-              <input
-                type="number"
-                className="search-input"
-                value={spiralRadius}
-                onChange={(e) => {
-                  const v = parseInt(e.target.value)
-                  if (!isNaN(v) && v > 0) onSpiralRadiusChange(v)
-                }}
-                style={{ flex: 1 }}
-                min="10"
-                step="50"
-              />
-            </div>
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              <div style={{ width: 100, fontSize: 12 }}>{t('panel.spiral_spacing')}</div>
-              <input
-                type="number"
-                className="search-input"
-                value={spiralSpacing}
-                onChange={(e) => {
-                  const v = parseInt(e.target.value)
-                  if (!isNaN(v) && v > 0) onSpiralSpacingChange(v)
-                }}
-                style={{ flex: 1 }}
-                min="5"
-                step="5"
-              />
-            </div>
-          </div>
-        </div>
+        <SpiralSettingsPanel
+          radius={spiralRadius}
+          spacing={spiralSpacing}
+          onRadiusChange={onSpiralRadiusChange}
+          onSpacingChange={onSpiralSpacingChange}
+          t={t}
+        />
       )}
 
       {/* Random Walk Radius - shown when RandomWalk mode is selected */}

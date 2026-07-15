@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import * as api from '../services/api'
 import type { WsMessage } from './useWebSocket'
 import { playCompletionAlert } from '../services/alertSound'
+import { startSpiralRequest } from '../extensions/custom/spiral'
 
 export enum SimMode {
   Teleport = 'teleport',
@@ -807,7 +808,7 @@ export function useSimulation(subscribe?: WsSubscribe, primaryUdid?: string | nu
       try {
         _setMode(SimMode.Spiral)
         setProgress(0)
-        const res = await api.startSpiral(center, radiusM, spacingM, moveMode, { speed_kmh: customSpeedKmh, speed_min_kmh: speedMinKmh, speed_max_kmh: speedMaxKmh }, undefined, straightLine, routeEngine)
+        const res = await startSpiralRequest(center, radiusM, spacingM, moveMode, { speed_kmh: customSpeedKmh, speed_min_kmh: speedMinKmh, speed_max_kmh: speedMaxKmh }, undefined, straightLine, routeEngine)
         setStatus((prev) => ({ ...prev, running: true, paused: false }))
         setEffectiveSpeed({ kmh: customSpeedKmh ?? MODE_DEFAULT_KMH[moveMode], min: speedMinKmh, max: speedMaxKmh })
         return res
@@ -1020,7 +1021,7 @@ export function useSimulation(subscribe?: WsSubscribe, primaryUdid?: string | nu
   }, [fanout, preSyncStart, moveMode, customSpeedKmh, speedMinKmh, speedMaxKmh, pauseRandomWalk, straightLine, routeEngine, randomWalkCenterMode, forwardWalk])
   const startSpiralAll = useCallback(async (udids: string[], center: LatLng, r: number, spacing: number) => {
     await preSyncStart(udids)
-    return fanout(udids, 'spiral', (u) => api.startSpiral(center, r, spacing, moveMode, { speed_kmh: customSpeedKmh, speed_min_kmh: speedMinKmh, speed_max_kmh: speedMaxKmh }, u, straightLine, routeEngine))
+    return fanout(udids, 'spiral', (u) => startSpiralRequest(center, r, spacing, moveMode, { speed_kmh: customSpeedKmh, speed_min_kmh: speedMinKmh, speed_max_kmh: speedMaxKmh }, u, straightLine, routeEngine))
   }, [fanout, preSyncStart, moveMode, customSpeedKmh, speedMinKmh, speedMaxKmh, straightLine, routeEngine])
 
   const applySpeedAll = useCallback(async (udids: string[]) => {

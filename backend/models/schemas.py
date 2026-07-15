@@ -146,19 +146,6 @@ class RandomWalkRequest(BaseModel):
     forward_turn_deg: float = 35.0
 
 
-class SpiralRequest(BaseModel):
-    center: Coordinate
-    radius_m: float = 500.0
-    spacing_m: float = 20.0
-    mode: MovementMode = MovementMode.WALKING
-    speed_kmh: float | None = None
-    speed_min_kmh: float | None = None
-    speed_max_kmh: float | None = None
-    straight_line: bool = True
-    route_engine: str | None = None
-    udid: str | None = None
-
-
 class JoystickStartRequest(BaseModel):
     mode: MovementMode = MovementMode.WALKING
     speed_kmh: float | None = None

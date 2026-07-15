@@ -11,7 +11,7 @@
 
 | 功能 | 狀態 | 主要檔案 | 後續處理 |
 |---|---|---|---|
-| Spiral／中心繞圈 | local-only | `spiral_walk.py`、`simulation_engine.py`、`location.py`、前端模式檔案 | 第一個 backend/frontend extension 遷移範例 |
+| Spiral／中心繞圈 | local-only | `backend/extensions/custom/spiral/`、`frontend/src/extensions/custom/spiral/` | 已完成第一階段 extension 遷移；核心只保留穩定接點 |
 | 等待期間隨機漫步 | local-only | `route_loop.py`、`multi_stop.py`、`useSimulation.ts`、`ControlPanel.tsx` | 抽成 route dwell policy extension |
 | 多裝置狀態同步與接手 | local-only | `main.py`、`device.py`、`App.tsx`、`useSimulation.ts` | 抽成 lifecycle extension，保留單一 bootstrap hook |
 | 2-opt 路徑最佳化 | upstream-candidate | `geo_extras.py`、`geocode.py` | 保持獨立 service，補測試後可提交官方 |
