@@ -1,5 +1,24 @@
 # 專案進度
 
+## 2026-07-15：WiFi tunnel TLS-PSK runtime 修正
+
+- Updated `build-installer.bat` to prefer the project Python 3.13 `venv` and fall back to `py -3.13`, so future rebuilds reuse the verified dependency environment.
+- Electron/NSIS packaging completed successfully. Final artifact: `frontend/release/LocWarp Setup 0.2.190.exe` (150,117,817 bytes, SHA-256 `2C3DBDFE0564773DE8159EE510C5742611331663414EE5A5DA80E5165617FA8B`).
+- Final unpacked installer verification confirms `python313.dll=true` and `python311.dll=false`; the complete backend test suite passes (`6 passed`).
+- Frontend TypeScript and Vite production build completed successfully; only the existing bundle-size/dynamic-import warnings remain.
+- Promoted the verified Python 3.13 bundle to `dist-py/locwarp-backend`, which is the backend resource consumed by Electron packaging.
+- Built a clean PyInstaller backend with Python 3.13.13 into `dist-py313`; the bundle contains `python313.dll` (and no `python311.dll`) plus the compiled `lzfse` extension.
+- Smoke-tested the frozen `locwarp-backend.exe`: it started successfully, served `http://127.0.0.1:8777/` with `status: running`, and was then shut down cleanly.
+- Installed the minimal Microsoft C++ Build Tools workload and successfully compiled `lzfse 0.4.2` for CPython 3.13; all backend/build dependencies are now installed in the project `venv`.
+- Runtime tests pass (`2 passed`), and both the native TLS-PSK API and `pymobiledevice3.remote.tunnel_service` import successfully under Python 3.13.13.
+- Installed and verified Python 3.13.13 (64-bit); `SSLContext.set_psk_client_callback` is available as required.
+- Pinned `pymobiledevice3==9.30.1`, matching the previously packaged backend and preventing unreviewed tunnel API drift during rebuilds.
+- Python 3.13 dependency installation is currently blocked only by `lzfse` requiring a local MSVC build on Windows; the minimal official build toolchain is the next setup step.
+- 在 `backend/core/wifi_tunnel.py` 加入 Python 3.13 與 TLS-PSK 執行環境預檢；不相容的舊後端現在會立即回報明確原因，不再誤顯示為 tunnel timeout。
+- 在 `backend/api/device.py` 將此錯誤映射至既有的前端錯誤碼 `python313_missing`。
+- 在 `backend/locwarp-backend.spec` 加入同等的打包防呆，並將 `build-installer.bat` 改為明確解析及使用 `py -3.13`，避免再次誤用 Python 3.11。
+- 新增 `backend/tests/test_wifi_tunnel_runtime.py`，接下來進行 Python 3.13 環境驗證與新版 Windows installer 打包。
+
 ## 2026-07-15：建立 LocWarp 官方更新同步 Skill
 
 - 已在個人 Codex Skills 目錄建立 `locwarp-sync-upstream`，封裝 thin fork 的 upstream fetch、merge rehearsal、同步分支、衝突處理、客製功能稽核、驗證、文件更新、push 與 GitHub Actions 監看流程。
@@ -137,6 +156,39 @@
 - 驗證：完成 Python 語法驗證並進行了非同步邏輯的覆核，確保修正涵蓋了 `backend/main.py` 的 WebSocket 與屬性綁定操作，消除前台卡頓的假死現象。
 
 ---
+
+## 2026-07-15: backend.log tunnel 建立失敗初步診斷
+
+- 已讀取 `C:\Users\charlielaptop\.locwarp\logs\backend.log`（約 979 KB，最後寫入時間 15:50:54）。
+- 15:45–15:48 的 USB tunnel 失敗皆落在 `pymobiledevice3.exceptions.PasswordRequiredError: ('PasswordProtected', ...)`；log 中共出現 113 次，表示裝置當下仍受密碼鎖定/未完成解鎖，Lockdown 不允許 `StartService`。
+- 15:41–15:47 另有 Wi‑Fi RemotePairing `IncompleteReadError('0 bytes read on a total of 9 expected bytes')`，屬於 Wi‑Fi tunnel 候選連線被裝置端關閉或未完成握手，並非 USB tunnel 的主要例外。
+- 15:48:33 重試後成功：15:48:34 `Tunnel established`、`RSD connected`、`Connected ... via USB`；之後 15:48:52 起 DVT location 與 multi-stop 更新正常。
+- 同時發現 Personalized DDI 未掛載警告；這會影響需要 DDI 的功能，但不是本次 tunnel 建立失敗的直接原因。
+- 原始碼對照確認 `backend/core/device_manager.py:303-334` 的 `CoreDeviceTunnelProxy.create()` 會在 `StartService` 階段拋出上述例外；目前實作將所有例外統一改寫成「請以系統管理員身份執行」，因此這個提示不能直接當作根因。
+- 同一個裝置、同一個 backend 在 15:48:33–15:48:34 成功建立 USB tunnel，隨後 RSD、DVT 與 multi-stop 均正常；這排除了「固定缺少管理員權限」作為本次主要原因。
+- Wi‑Fi 路徑 `backend/core/wifi_tunnel.py:41-45` 在 RemotePairing handshake 階段收到 `IncompleteReadError`；現有 log 足以確認握手被對端中斷，但不足以單獨判定是舊配對記錄、錯誤 port 或 iPhone 當時狀態。
+
+## 2026-07-15: 修正雙裝置情境下的 Wi‑Fi tunnel 診斷
+
+- 依雙裝置情境重新分流後，Wi‑Fi 目標是 UDID 結尾 `001C` 的裝置：它有 `remote_...001C.plist` 配對記錄；另一台 `00008101-...001E` 在 15:42:54 消失後，`001C` 仍於 15:43–15:47 單獨重試並失敗，因此鎖定裝置不是 Wi‑Fi tunnel 的根因。
+- Wi‑Fi 的直接失敗點是 `pymobiledevice3` 的 RemotePairing `pair_verify`：`52009`/`62078` 連線後在等待 9-byte handshake magic 時收到 `IncompleteReadError (0 bytes)`；`49152`/`49157` 則 8 秒逾時。
+- 15:43:29 起 mDNS/Bonjour 為空，程式改用 smart scan；但 `backend/api/device.py:300-365` 的 fallback 只驗證 TCP port 可連線，沒有驗證它是否真的是 RemotePairing protocol。這可解釋為何掃到多個 port 後仍全部無法完成握手。
+- 本機 `remote_00008130-001C2DCE0243001C.plist` 最後修改時間為 2026-07-06；結合 handshake EOF，過期/失效 RemotePairing 記錄也是高度可疑因素。建議下一步以 USB 對該指定 UDID 執行 re-pair，並讓 mDNS 或 protocol-aware port discovery 找到正確 endpoint。
+- 雙裝置額外風險：`backend/api/device.py:115-159` 的 `/wifi/repair` 沒有 UDID 參數，只取 `list_devices()` 回傳的第一台 USB 裝置；目前前端 `wifiRepair()` 也不傳 UDID。因此使用 UI 重新配對時可能修到另一台裝置，後續應改成指定 Wi‑Fi 目標 UDID（`...001C`）再進行修復。
+
+## 2026-07-15: 單一裝置 Wi‑Fi tunnel timeout 根因確認
+
+- 新一輪單裝置測試在 16:04:23 使用 `192.168.50.11:49152` 時已成功完成 `RemotePairing connected (identifier=...001C)`；因此 iPhone 可達、同網段與 RemotePairing 配對均已通過。
+- 隨後在 `pymobiledevice3.remote.tunnel_service.start_tcp_tunnel()` 建立 TLS‑PSK 時於第 641 行拋出 `TypeError: 'NoneType' object is not callable`，具體是 `SSLPSKContext(ssl.PROTOCOL_TLSv1_2)`；UI 顯示的「Tunnel 啟動逾時」只是後續 fallback/timeout 的包裝訊息。
+- 目前執行中的 `locwarp-backend` 對應工作區 `dist-py/locwarp-backend`，其中包含 `python311.dll`；而 `pymobiledevice3` 的 tunnel code 在 Python <3.13 分支依賴 `sslpsk_pmd3.SSLPSKContext`。該 import 失敗後被套件改成 `None`，造成 TLS tunnel 無法建立。
+- 專案建置文件雖標示 Python 3.13，但 `build-installer.bat` 使用未限定版本的 `python`；現有 dist/build 產物是 Python 3.11。優先修正為以 Python 3.13 建置並重新打包，避免走 `SSLPSKContext` fallback；若仍支援 Python 3.11，則需另行修正/明確打包 `sslpsk_pmd3` 及其 OpenSSL runtime。
+
+## 2026-07-15: Wi‑Fi TLS‑PSK 修正與重新打包（進行中）
+
+- 已確認工作樹除本輪 `doc/progress.md` 外乾淨，修改基線位於 `custom/main`。
+- Node.js `v24.15.0`、npm `11.12.1`、frontend dependencies 與 electron-builder 均已就緒。
+- 系統目前找不到可用的 Python 3.13；`py` launcher 存在但回報沒有已安裝 Python，工作區也沒有 `venv`。因此需先完成建置防呆，再安裝 Python 3.13 才能產出正確 backend EXE。
+- 現有 `dist-py/locwarp-backend` 明確包含 `python311.dll`，證實舊 installer 的 backend 是以 Python 3.11 打包。
 
 ## 2026-05-27: Spiral Mode (中心繞圈)
 - 後端：新增 `SpiralRequest`、`SimulationState.SPIRAL`，實作阿基米德螺旋線邏輯 (`SpiralWalkHandler`)，新增 API `/api/location/spiral`，並將其整合進 `SimulationEngine` 中。

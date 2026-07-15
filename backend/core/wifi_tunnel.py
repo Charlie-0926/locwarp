@@ -9,8 +9,25 @@ release it via a stop event.
 
 import asyncio
 import logging
+import ssl
+import sys
 
 logger = logging.getLogger("wifi_tunnel")
+
+
+class WifiTunnelRuntimeError(RuntimeError):
+    """Raised when the bundled Python runtime cannot create TLS-PSK tunnels."""
+
+
+def validate_wifi_tunnel_runtime() -> None:
+    """Ensure this runtime has the TLS-PSK API required by iOS WiFi tunnels."""
+    if sys.version_info < (3, 13) or not callable(
+        getattr(ssl.SSLContext, "set_psk_client_callback", None)
+    ):
+        raise WifiTunnelRuntimeError(
+            "WiFi tunnel requires Python 3.13 or newer with TLS-PSK support; "
+            f"current runtime is Python {sys.version.split()[0]}"
+        )
 
 
 class TunnelRunner:
@@ -101,6 +118,7 @@ class TunnelRunner:
         Raises asyncio.TimeoutError on timeout or the underlying exception
         if the tunnel setup failed before becoming ready.
         """
+        validate_wifi_tunnel_runtime()
         self._stop = asyncio.Event()
         self._ready = asyncio.Event()
         self._error = None

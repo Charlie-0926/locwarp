@@ -96,7 +96,7 @@ async def wifi_tunnel_connect(req: WifiTunnelConnectRequest):
 import asyncio
 import logging
 
-from core.wifi_tunnel import TunnelRunner
+from core.wifi_tunnel import TunnelRunner, WifiTunnelRuntimeError
 
 _tunnel_logger = logging.getLogger("wifi_tunnel")
 
@@ -1008,6 +1008,15 @@ async def wifi_tunnel_start(req: WifiTunnelStartRequest):
             runner = TunnelRunner()
             try:
                 info = await runner.start(cand, req.ip, req.port, timeout=8.0)
+            except WifiTunnelRuntimeError as e:
+                _tunnel_logger.error("WiFi tunnel runtime is unsupported: %s", e)
+                raise HTTPException(
+                    status_code=500,
+                    detail={
+                        "code": "python313_missing",
+                        "message": "後端缺少 WiFi Tunnel 所需的 TLS-PSK 支援，請重新安裝最新版 LocWarp",
+                    },
+                ) from e
             except asyncio.TimeoutError as e:
                 last_error = e
                 _tunnel_logger.warning(

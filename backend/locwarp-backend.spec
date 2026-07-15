@@ -2,7 +2,22 @@
 # PyInstaller spec for LocWarp backend (Python 3.13).
 # Build: py -3.13 -m PyInstaller backend/locwarp-backend.spec --noconfirm
 
+import ssl
+import sys
+
 from PyInstaller.utils.hooks import collect_all, collect_submodules, copy_metadata
+
+if sys.version_info < (3, 13):
+    raise SystemExit(
+        "locwarp-backend must be built with Python 3.13 or newer; "
+        f"got {sys.version.split()[0]}"
+    )
+
+if not callable(getattr(ssl.SSLContext, "set_psk_client_callback", None)):
+    raise SystemExit(
+        "This Python runtime lacks SSLContext.set_psk_client_callback; "
+        "cannot build WiFi tunnel support"
+    )
 
 # pymobiledevice3 has a LOT of dynamic imports — collect everything
 pmd_datas, pmd_binaries, pmd_hiddenimports = collect_all('pymobiledevice3')
