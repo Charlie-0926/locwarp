@@ -2,6 +2,8 @@
 
 ## 2026-07-16：`locwarp-sync-upstream` 對增量 2-opt 的適用性稽核
 
+- 已完善個人 Codex skill `C:\Users\charlielaptop\.codex\skills\locwarp-sync-upstream\SKILL.md`：同步後須明確保留固定起點、完整且不重複的 waypoint 順序、O(1) 增量候選評估、非對稱 matrix 與不可達邊防護；相關變更時必跑 route optimizer regression test。
+- Skill 新增私有資料安全規則：`doc/coordinates.txt` 等本機路線輸入不得加入 Git、CI fixture、skill resource 或同步報告，只能記錄彙總效能數據；更新後 `quick_validate.py` 回報 `Skill is valid!`，`agents/openai.yaml` 仍與 skill 用途一致。
 - 增量 2-opt 提交前 review 無阻擋問題：1,040 組隨機非對稱 matrix 與舊版演算法順序完全一致；backend 9 項測試及完整 `scripts/verify.ps1`（extension boundaries、Pyright、Electron syntax、TypeScript、production build）均通過。
 - 依 skill 規則唯讀檢查 `doc/upstream-sync/README.md`、客製功能帳本、同步／預演／驗證腳本及 GitHub compatibility workflow。
 - 現行 skill 已能保護此次修改：feature ledger 已記錄增量 2-opt，extension boundary 要求 `two_opt.py` 存在，CI 會執行 `backend/tests/extensions`，因此對稱、非對稱、不可達邊與固定起點 regression tests 都會在同步後執行。
