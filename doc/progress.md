@@ -1,5 +1,10 @@
 # 專案進度
 
+## 2026-07-16：增量 2-opt 與 sync skill 紀錄發布
+
+- 已將 `custom/main` 推送至 `origin/custom/main`；第一輪遠端由 `87a946d` 更新至 `de8918e`，包含既有 `a297895`、增量 2-opt `06d74fa` 及 skill 完善紀錄 `de8918e`。私有 `doc/coordinates.txt` 未追蹤且未上傳。
+- Push 後確認本機與遠端 SHA 一致。GitHub Actions 未產生 `Custom compatibility` run：workflow 檔僅存在 `custom/main`，repository 預設分支 `main` 未包含任何 workflow，因此 GitHub 未註冊該 workflow；依 thin-fork 契約未將客製 workflow 加入官方鏡像 `main`。
+
 ## 2026-07-16：`locwarp-sync-upstream` 對增量 2-opt 的適用性稽核
 
 - 已完善個人 Codex skill `C:\Users\charlielaptop\.codex\skills\locwarp-sync-upstream\SKILL.md`：同步後須明確保留固定起點、完整且不重複的 waypoint 順序、O(1) 增量候選評估、非對稱 matrix 與不可達邊防護；相關變更時必跑 route optimizer regression test。
