@@ -1,5 +1,28 @@
 # 專案進度
 
+## 2026-07-16：`locwarp-sync-upstream` 對增量 2-opt 的適用性稽核
+
+- 增量 2-opt 提交前 review 無阻擋問題：1,040 組隨機非對稱 matrix 與舊版演算法順序完全一致；backend 9 項測試及完整 `scripts/verify.ps1`（extension boundaries、Pyright、Electron syntax、TypeScript、production build）均通過。
+- 依 skill 規則唯讀檢查 `doc/upstream-sync/README.md`、客製功能帳本、同步／預演／驗證腳本及 GitHub compatibility workflow。
+- 現行 skill 已能保護此次修改：feature ledger 已記錄增量 2-opt，extension boundary 要求 `two_opt.py` 存在，CI 會執行 `backend/tests/extensions`，因此對稱、非對稱、不可達邊與固定起點 regression tests 都會在同步後執行。
+- skill 無必要立即修改；建議後續小幅強化第 7、9 步，明列 2-opt 必須維持增量成本、固定起點、非對稱／不可達邊行為，並明確執行 `backend/tests/extensions/test_route_optimizer.py`。私有 `doc/coordinates.txt` 應繼續只留本機，不加入 skill、CI 或同步報告。
+- 已依 skill 安全規則完成本次 2-opt 與文件變更的 review，並準備以獨立功能 commit 保存，避免日後 upstream sync 混入未提交內容。
+
+## 2026-07-16：400+ 點 2-opt／LKH-3 唯讀評估
+
+- 私有 434 點資料最終比較：舊版 134.100 秒；最終版連跑 5 次中位數 1.386 秒，約快 96.7 倍、耗時降低 98.97%。兩版距離皆為 63,297.434 公尺，新版 5 次順序完全一致，且路徑合法、固定起點正確。
+- `doc/coordinates.txt` 已加入 `.gitignore`，避免私有基準座標被誤 commit 或 push；測試與文件均不複製座標內容。
+- 補上 duration matrix 含不可達 `None` 邊的防護與測試；backend 完整測試為 9 項通過。
+- 最終靜態檢查通過：route optimizer 實作與測試的 Pyright 結果為 0 errors、0 warnings、0 informations；`git diff --check` 通過。
+- 完成增量成本 2-opt：候選評估不再複製並重算完整路徑，改以邊界差額與反向內部邊前綴和做 O(1) 比較；只有接受改善時才實際反轉片段。此作法保留 first-improvement 行為，也支援非對稱 duration matrix。
+- 新增對稱／非對稱 matrix 的舊版演算法 regression oracle 測試，固定與非固定起點皆須產生相同順序；route optimizer 測試共 4 項通過。
+- 實際私有座標集 `doc/coordinates.txt`（434 點）改善前基準完成：haversine matrix 0.037 秒、nearest-neighbor 距離 75,489.419 公尺、舊版 2-opt 134.100 秒、改善後距離 63,297.434 公尺；結果包含全部 434 點且固定起點正確。基準只在本機執行，未輸出或上傳座標內容。
+- 完成現行 route optimize 呼叫流程與 2-opt 複雜度分析；確認每個候選都複製並重算整條路徑，使完整掃描約為 O(n³)，是 400+ 點的主要 solver 瓶頸。
+- 合成 Euclidean matrix 基準：50 點 0.018 秒、100 點 0.259 秒、200 點 5.967 秒；未直接執行可能長時間阻塞的 400 點測試。
+- 確認超過 100 點時 OSRM table 會跳過，實際等待也可能包含 Valhalla matrix 與 haversine fallback，後續應先加入分段計時。
+- 評估 LKH-3：解品質與規模能力較強，但需要 open-path/dummy-node 轉換、ATSP／整數成本處理、Windows binary 打包及 timeout/fallback；其研究／非商業授權亦與 LocWarp 的 MIT 商用授權不相容。
+- 唯讀評估後已依使用者指示完成既有 2-opt 優化；實測已達到 400+ 點速度需求，暫時不需要導入外部 solver。完整內容見 `doc/2026-07-16-route-optimizer-lkh3-analysis.md`。
+
 ## 2026-07-15：WiFi tunnel TLS-PSK runtime 修正
 
 - Updated `build-installer.bat` to prefer the project Python 3.13 `venv` and fall back to `py -3.13`, so future rebuilds reuse the verified dependency environment.

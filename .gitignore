@@ -44,3 +44,6 @@ Thumbs.db
 S__*.png
 S__*.jpg
 _geoport/
+
+# Private local route benchmark data
+doc/coordinates.txt
