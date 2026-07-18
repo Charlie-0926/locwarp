@@ -400,10 +400,9 @@ async def loop(req: LoopRequest):
         route_engine=req.route_engine,
         lap_count=req.lap_count,
         jump_mode=req.jump_mode,
-        jump_pre_delay=req.jump_pre_delay,
-        jump_post_delay=req.jump_post_delay,
-        jump_random_walk=req.jump_random_walk,
-        jump_random_walk_radius=req.jump_random_walk_radius,
+        jump_dwell_motion=req.jump_dwell_motion,
+        jump_extra_wait=req.jump_extra_wait,
+        jump_move_seconds=req.jump_move_seconds,
     ))
     return {"status": "started", "waypoints": len(req.waypoints), "mode": req.mode}
 
@@ -420,10 +419,9 @@ async def multi_stop(req: MultiStopRequest):
         straight_line=req.straight_line,
         route_engine=req.route_engine,
         jump_mode=req.jump_mode,
-        jump_pre_delay=req.jump_pre_delay,
-        jump_post_delay=req.jump_post_delay,
-        jump_random_walk=req.jump_random_walk,
-        jump_random_walk_radius=req.jump_random_walk_radius,
+        jump_dwell_motion=req.jump_dwell_motion,
+        jump_extra_wait=req.jump_extra_wait,
+        jump_move_seconds=req.jump_move_seconds,
     ))
     return {"status": "started", "stops": len(req.waypoints), "mode": req.mode}
 

@@ -35,7 +35,7 @@ import AddressSearch from './AddressSearch';
 import BookmarkList from './BookmarkList';
 import RouteList, { RouteCategory, SavedRoute } from './RouteList';
 import { SpiralSettingsPanel } from '../extensions/custom/spiral';
-import { JumpRandomWalkControl } from '../extensions/custom/jumpRandomWalk';
+import { JumpDwellMotionControl } from '../extensions/custom/jumpRandomWalk';
 
 interface Position {
   lat: number;
@@ -149,19 +149,16 @@ interface ControlPanelProps {
   onRouteEngineChange?: (v: 'osrm' | 'osrm_fossgis' | 'valhalla' | 'brouter') => void;
   clickToAddWaypoint?: boolean;
   onClickToAddWaypointChange?: (v: boolean) => void;
-  // Jump mode: when toggled on for Loop / MultiStop, the device teleports
-  // point-to-point with configurable pre / post delays around each
-  // teleport, instead of walking the routed path.
+  // Jump mode: teleport, wait jumpExtraWait seconds, then optionally move
+  // at the fixed speed for jumpMoveSeconds seconds.
   jumpMode?: boolean;
   onJumpModeChange?: (v: boolean) => void;
-  jumpPreDelay?: number;
-  onJumpPreDelayChange?: (v: number) => void;
-  jumpPostDelay?: number;
-  onJumpPostDelayChange?: (v: number) => void;
-  jumpRandomWalk?: boolean;
-  onJumpRandomWalkChange?: (v: boolean) => void;
-  jumpRandomWalkRadius?: number;
-  onJumpRandomWalkRadiusChange?: (v: number) => void;
+  jumpDwellMotion?: boolean;
+  onJumpDwellMotionChange?: (v: boolean) => void;
+  jumpExtraWait?: number;
+  onJumpExtraWaitChange?: (v: number) => void;
+  jumpMoveSeconds?: number;
+  onJumpMoveSecondsChange?: (v: number) => void;
   onApplyJumpSettings?: () => Promise<void> | void;
   // Incremented by any external source (e.g. map top-left library
   // button) to request the library panel be opened. useEffect on the
@@ -351,14 +348,12 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
   onClickToAddWaypointChange,
   jumpMode = false,
   onJumpModeChange,
-  jumpPreDelay = 2,
-  onJumpPreDelayChange,
-  jumpPostDelay = 4,
-  onJumpPostDelayChange,
-  jumpRandomWalk = false,
-  onJumpRandomWalkChange,
-  jumpRandomWalkRadius = 10,
-  onJumpRandomWalkRadiusChange,
+  jumpDwellMotion = false,
+  onJumpDwellMotionChange,
+  jumpExtraWait = 6,
+  onJumpExtraWaitChange,
+  jumpMoveSeconds = 4,
+  onJumpMoveSecondsChange,
   onApplyJumpSettings,
   openLibraryToken,
   openLibraryTab,
@@ -657,55 +652,17 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                   </span>
                 </label>
                 {jumpMode && (
-                  <>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, opacity: 0.85 }}>
-                      {t('panel.jump_pre_delay')}
-                      <input
-                        type="number"
-                        step="0.5"
-                        min="0"
-                        value={jumpPreDelay}
-                        onChange={(e) => {
-                          const v = parseFloat(e.target.value)
-                          if (Number.isFinite(v) && v >= 0 && onJumpPreDelayChange) onJumpPreDelayChange(v)
-                        }}
-                        style={{
-                          width: 60, padding: '2px 6px', fontSize: 11,
-                          background: '#0f1218', color: '#e6e8ee',
-                          border: '1px solid rgba(255,255,255,0.12)', borderRadius: 4,
-                        }}
-                      />
-                      <span style={{ opacity: 0.7 }}>{t('panel.jump_delay_seconds')}</span>
-                    </span>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, opacity: 0.85 }}>
-                      {t('panel.jump_post_delay')}
-                      <input
-                        type="number"
-                        step="0.5"
-                        min="0"
-                        value={jumpPostDelay}
-                        onChange={(e) => {
-                          const v = parseFloat(e.target.value)
-                          if (Number.isFinite(v) && v >= 0 && onJumpPostDelayChange) onJumpPostDelayChange(v)
-                        }}
-                        style={{
-                          width: 60, padding: '2px 6px', fontSize: 11,
-                          background: '#0f1218', color: '#e6e8ee',
-                          border: '1px solid rgba(255,255,255,0.12)', borderRadius: 4,
-                        }}
-                      />
-                      <span style={{ opacity: 0.7 }}>{t('panel.jump_delay_seconds')}</span>
-                    </span>
-                    <JumpRandomWalkControl
-                      enabled={jumpRandomWalk}
-                      radius={jumpRandomWalkRadius}
-                      running={isRunning}
-                      onEnabledChange={onJumpRandomWalkChange}
-                      onRadiusChange={onJumpRandomWalkRadiusChange}
-                      onApply={onApplyJumpSettings}
-                      t={t}
-                    />
-                  </>
+                  <JumpDwellMotionControl
+                    enabled={jumpDwellMotion}
+                    extraWait={jumpExtraWait}
+                    moveSeconds={jumpMoveSeconds}
+                    running={isRunning}
+                    onEnabledChange={onJumpDwellMotionChange}
+                    onExtraWaitChange={onJumpExtraWaitChange}
+                    onMoveSecondsChange={onJumpMoveSecondsChange}
+                    onApply={onApplyJumpSettings}
+                    t={t}
+                  />
                 )}
               </div>
             )}

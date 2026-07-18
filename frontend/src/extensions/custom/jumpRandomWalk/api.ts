@@ -1,15 +1,24 @@
 import { request } from '../../../services/api'
 
-export const applyJumpRandomWalkSettings = (
+export interface JumpDwellSettingsResponse {
+  status: string
+  jump_dwell_motion: boolean
+  jump_extra_wait: number
+  jump_move_seconds: number
+}
+
+export const applyJumpDwellSettings = (
   enabled: boolean,
-  radius: number,
+  extraWait: number,
+  moveSeconds: number,
   udid?: string,
-) => request<{ status: string; jump_random_walk: boolean; jump_random_walk_radius: number }>(
+) => request<JumpDwellSettingsResponse>(
   'POST',
   '/api/location/apply-jump-settings',
   {
-    jump_random_walk: enabled,
-    jump_random_walk_radius: radius,
+    jump_dwell_motion: enabled,
+    jump_extra_wait: extraWait,
+    jump_move_seconds: moveSeconds,
     ...(udid ? { udid } : {}),
   },
 )

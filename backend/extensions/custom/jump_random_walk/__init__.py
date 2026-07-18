@@ -1,3 +1,15 @@
-from .policy import perform_dwell_step, random_coordinate
+from .policy import (
+    DWELL_MOTION_DURATION_SECONDS,
+    DWELL_MOTION_SPEED_KMH,
+    DWELL_MOTION_SPEED_MPS,
+    DWELL_MOTION_TICK_SECONDS,
+    DwellMotionSession,
+)
 
-__all__ = ["perform_dwell_step", "random_coordinate"]
+__all__ = [
+    "DWELL_MOTION_DURATION_SECONDS",
+    "DWELL_MOTION_SPEED_KMH",
+    "DWELL_MOTION_SPEED_MPS",
+    "DWELL_MOTION_TICK_SECONDS",
+    "DwellMotionSession",
+]

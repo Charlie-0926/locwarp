@@ -1,2 +1,2 @@
-export { applyJumpRandomWalkSettings } from './api'
-export { JumpRandomWalkControl } from './JumpRandomWalkControl'
+export { applyJumpDwellSettings } from './api'
+export { JumpDwellMotionControl } from './JumpDwellMotionControl'

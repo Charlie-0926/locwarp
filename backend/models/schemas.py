@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from enum import Enum
-from pydantic import BaseModel, Field
+from typing import Any
+
+from pydantic import BaseModel, Field, model_validator
 
 
 class Coordinate(BaseModel):
@@ -68,6 +70,27 @@ class NavigateRequest(BaseModel):
     udid: str | None = None
 
 
+def _normalize_legacy_jump_settings(value: Any) -> Any:
+    """Map the former pre/post random-walk contract to post-arrival dwell.
+
+    New fields always win when a request contains both generations. Pydantic
+    still performs the final bool/float validation after this normalization.
+    """
+    if not isinstance(value, dict):
+        return value
+
+    normalized = dict(value)
+    if "jump_dwell_motion" not in normalized:
+        normalized["jump_dwell_motion"] = normalized.get(
+            "jump_random_walk", False,
+        )
+    if "jump_extra_wait" not in normalized:
+        pre_delay = float(normalized.get("jump_pre_delay", 2.0))
+        post_delay = float(normalized.get("jump_post_delay", 4.0))
+        normalized["jump_extra_wait"] = max(0.0, pre_delay) + max(0.0, post_delay)
+    return normalized
+
+
 class LoopRequest(BaseModel):
     waypoints: list[Coordinate]
     mode: MovementMode = MovementMode.WALKING
@@ -86,14 +109,19 @@ class LoopRequest(BaseModel):
     # Number of laps to run before auto-stopping. None / 0 / negative means
     # infinite laps (current default behaviour, user stops manually).
     lap_count: int | None = None
-    # Jump mode: teleport point-to-point instead of walking the routed
-    # path. jump_pre_delay is the wait before each teleport; jump_post_delay
-    # is the wait after. Both honour pause/stop so the user can interrupt.
+    # Jump mode: teleport point-to-point instead of walking the routed path.
+    # All dwell happens after arrival. When jump_dwell_motion is enabled the
+    # device first waits jump_extra_wait seconds, then moves for
+    # jump_move_seconds at the fixed dwell-motion speed.
     jump_mode: bool = False
-    jump_pre_delay: float = 2.0
-    jump_post_delay: float = 4.0
-    jump_random_walk: bool = False
-    jump_random_walk_radius: float = 10.0
+    jump_dwell_motion: bool = False
+    jump_extra_wait: float = Field(default=6.0, ge=0.0)
+    jump_move_seconds: float = Field(default=4.0, ge=0.0)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_legacy_jump_settings(cls, value: Any) -> Any:
+        return _normalize_legacy_jump_settings(value)
 
 
 class MultiStopRequest(BaseModel):
@@ -112,13 +140,16 @@ class MultiStopRequest(BaseModel):
     straight_line: bool = False
     route_engine: str | None = None
     udid: str | None = None
-    # Jump mode: teleport point-to-point instead of walking the routed
-    # path. See LoopRequest.jump_mode for details.
+    # Jump mode: see LoopRequest for the post-arrival dwell semantics.
     jump_mode: bool = False
-    jump_pre_delay: float = 2.0
-    jump_post_delay: float = 4.0
-    jump_random_walk: bool = False
-    jump_random_walk_radius: float = 10.0
+    jump_dwell_motion: bool = False
+    jump_extra_wait: float = Field(default=6.0, ge=0.0)
+    jump_move_seconds: float = Field(default=4.0, ge=0.0)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_legacy_jump_settings(cls, value: Any) -> Any:
+        return _normalize_legacy_jump_settings(value)
 
 
 class FlowerRequest(BaseModel):

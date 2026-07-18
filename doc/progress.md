@@ -1,5 +1,28 @@
 # 專案進度
 
+## 2026-07-18：跳躍停留順序與移動秒數調整（已完成）
+
+- 使用者已確認前一版固定方向 15 km/h／4 秒移動在單台與雙台實機均正常。
+- 第一小段已完成：後端 request、runtime engine 與 hot-apply contract 新增 `jump_move_seconds`，預設 4 秒且最小值為 0；未傳新欄位的舊客戶端維持 4 秒相容行為。
+- 第二小段已完成：multi-stop／route-loop 每站先快照 enabled、`n`、`m`，依序執行 idle wait 再建立 movement session；方向因此只會在等待結束後抽一次。
+- ETA、pause countdown 與 dwell event elapsed 已統一為 `n+m`；idle 事件從 0 累計到 `n`，movement 事件從 `n` 累計到 `n+m`，完成事件速度歸零。
+- 第三小段已完成：後端測試新增自訂 `m` 距離與「idle 先於 moving」斷言，並同步驗證預設 4 秒、pause／stop、閉環與非循環終點；jump extension 共 11 項通過。
+- 第四小段已完成：前端新增 `locwarp.jump.move_seconds`（預設 4）及「直線移動時間」輸入；畫面順序為先等待、再啟用直線移動與設定 `m`。
+- 單台／雙台 start request 與 hot apply 均會傳 enabled、`n`、`m`；摘要顯示「先等待 n 秒，再以 15 km/h 移動 m 秒，共 n+m 秒」。Frontend TypeScript 已通過。
+- 第五小段已完成：README 中英文、功能帳本與評估文件已同步「先等 n、再走 m」及固定 15 km/h 語意。
+- 最終自動驗證通過：backend 19 passed、extension boundaries 通過、Pyright 0 errors、Electron syntax／Frontend TypeScript／production build 全部通過；僅有既有 Vite CJS、混合 import 與大 chunk 警告。
+- 最終 diff／空白檢查通過；未觸碰既有不相關的 `doc/2026-07-16-route-start-index-log-audit.md`。
+- 實機驗收完成：使用者確認現行「先等待 `n`、再以 15 km/h 移動可調 `m` 秒」版本在單台與雙台裝置皆運作正常，可提交保存。
+- 已建立功能 commit：`feat: add configurable post-jump linear movement`；僅收錄本功能的程式、測試與文件，不包含不相關的 7/16 稽核文件。
+
+## 2026-07-18：點對點跳躍改為到站後固定方向直線移動
+
+- 移除 jump mode 的跳躍前等待；舊 pre/post 設定會遷移並正規化成單一到站後額外等待 `n`。
+- 每個一般停靠點到站後隨機選一次 bearing，以 15 km/h 直線移動 4 個有效秒（約 16.67 m），再於終點等待 `n` 秒；pause 凍結兩階段，hot apply 從下一站生效。
+- 重構 multi-stop／route-loop post-dwell、ETA 與閉環 traversal；有限圈數精確停在 waypoint 0，非循環最後一點精確停在終點。
+- 前端移除 pre-delay 與半徑 UI，新增舊 localStorage 遷移、`4+n` 說明、enabled+n hot apply 及 dwell 即時速度顯示。
+- 新增 contract、幾何、時序、pause/stop、閉環與最後點測試；完整驗證結果記錄於 `doc/2026-07-18-jump-dwell-linear-movement-assessment.md`。
+
 ## 2026-07-16：增量 2-opt 與 sync skill 紀錄發布
 
 - 已將 `custom/main` 推送至 `origin/custom/main`；第一輪遠端由 `87a946d` 更新至 `de8918e`，包含既有 `a297895`、增量 2-opt `06d74fa` 及 skill 完善紀錄 `de8918e`。私有 `doc/coordinates.txt` 未追蹤且未上傳。

@@ -111,11 +111,15 @@ class SimulationEngine:
 
         # Task management
         self._active_task: asyncio.Task | None = None
-        self.jump_random_walk: bool = False
-        self.jump_random_walk_radius: float = 10.0
+        self.jump_dwell_motion: bool = False
+        self.jump_extra_wait: float = 6.0
+        self.jump_move_seconds: float = 4.0
         self._paused_from: SimulationState | None = None
         self._pause_event = asyncio.Event()
         self._pause_event.set()  # set = running, clear = paused
+        self._pause_change_event = asyncio.Event()
+        self._pause_total_seconds: float = 0.0
+        self._pause_started_monotonic: float | None = None
         self._stop_event = asyncio.Event()
 
         # Sub-handlers
@@ -269,10 +273,9 @@ class SimulationEngine:
         route_engine: str | None = None,
         lap_count: int | None = None,
         jump_mode: bool = False,
-        jump_pre_delay: float = 2.0,
-        jump_post_delay: float = 4.0,
-        jump_random_walk: bool = False,
-        jump_random_walk_radius: float = 10.0,
+        jump_dwell_motion: bool = False,
+        jump_extra_wait: float = 6.0,
+        jump_move_seconds: float = 4.0,
     ) -> None:
         """Start looping through a closed route."""
         await self._ensure_stopped()
@@ -286,10 +289,9 @@ class SimulationEngine:
             straight_line=straight_line, route_engine=route_engine,
             lap_count=lap_count,
             jump_mode=jump_mode,
-            jump_pre_delay=jump_pre_delay,
-            jump_post_delay=jump_post_delay,
-            jump_random_walk=jump_random_walk,
-            jump_random_walk_radius=jump_random_walk_radius,
+            jump_dwell_motion=jump_dwell_motion,
+            jump_extra_wait=jump_extra_wait,
+            jump_move_seconds=jump_move_seconds,
         )
         await self._run_handler(
             self._looper.start_loop(
@@ -300,10 +302,9 @@ class SimulationEngine:
                 straight_line=straight_line, route_engine=route_engine,
                 lap_count=lap_count,
                 jump_mode=jump_mode,
-                jump_pre_delay=jump_pre_delay,
-                jump_post_delay=jump_post_delay,
-                jump_random_walk=jump_random_walk,
-                jump_random_walk_radius=jump_random_walk_radius,
+                jump_dwell_motion=jump_dwell_motion,
+                jump_extra_wait=jump_extra_wait,
+                jump_move_seconds=jump_move_seconds,
             ),
             "Loop",
         )
@@ -339,10 +340,9 @@ class SimulationEngine:
         straight_line: bool = False,
         route_engine: str | None = None,
         jump_mode: bool = False,
-        jump_pre_delay: float = 2.0,
-        jump_post_delay: float = 4.0,
-        jump_random_walk: bool = False,
-        jump_random_walk_radius: float = 10.0,
+        jump_dwell_motion: bool = False,
+        jump_extra_wait: float = 6.0,
+        jump_move_seconds: float = 4.0,
     ) -> None:
         """Navigate through waypoints with optional stops."""
         await self._ensure_stopped()
@@ -356,10 +356,9 @@ class SimulationEngine:
             pause_enabled=pause_enabled, pause_min=pause_min, pause_max=pause_max,
             straight_line=straight_line, route_engine=route_engine,
             jump_mode=jump_mode,
-            jump_pre_delay=jump_pre_delay,
-            jump_post_delay=jump_post_delay,
-            jump_random_walk=jump_random_walk,
-            jump_random_walk_radius=jump_random_walk_radius,
+            jump_dwell_motion=jump_dwell_motion,
+            jump_extra_wait=jump_extra_wait,
+            jump_move_seconds=jump_move_seconds,
         )
         await self._run_handler(
             self._multi_stop.start(
@@ -369,10 +368,9 @@ class SimulationEngine:
                 pause_enabled=pause_enabled, pause_min=pause_min, pause_max=pause_max,
                 straight_line=straight_line, route_engine=route_engine,
                 jump_mode=jump_mode,
-                jump_pre_delay=jump_pre_delay,
-                jump_post_delay=jump_post_delay,
-                jump_random_walk=jump_random_walk,
-                jump_random_walk_radius=jump_random_walk_radius,
+                jump_dwell_motion=jump_dwell_motion,
+                jump_extra_wait=jump_extra_wait,
+                jump_move_seconds=jump_move_seconds,
             ),
             "Multi-stop",
         )
@@ -511,7 +509,9 @@ class SimulationEngine:
 
         self._paused_from = self.state
         self.state = SimulationState.PAUSED
+        self._pause_started_monotonic = time.monotonic()
         self._pause_event.clear()
+        self._pause_change_event.set()
 
         await self._emit("state_change", {
             "state": self.state.value,
@@ -527,7 +527,14 @@ class SimulationEngine:
         prev = self._paused_from or SimulationState.IDLE
         self.state = prev
         self._paused_from = None
+        if self._pause_started_monotonic is not None:
+            self._pause_total_seconds += max(
+                0.0,
+                time.monotonic() - self._pause_started_monotonic,
+            )
+            self._pause_started_monotonic = None
         self._pause_event.set()
+        self._pause_change_event.set()
 
         await self._emit("state_change", {"state": self.state.value})
         logger.info("Simulation resumed to %s", self.state.value)
@@ -675,7 +682,14 @@ class SimulationEngine:
         the active task to finish.
         """
         self._stop_event.set()
+        if self._pause_started_monotonic is not None:
+            self._pause_total_seconds += max(
+                0.0,
+                time.monotonic() - self._pause_started_monotonic,
+            )
+            self._pause_started_monotonic = None
         self._pause_event.set()  # unblock if paused
+        self._pause_change_event.set()
 
         # Stop joystick if active
         if self._joystick.is_active:
@@ -875,10 +889,18 @@ class SimulationEngine:
         self._speed_was_applied = True
         return True
 
-    def apply_jump_settings(self, enabled: bool, radius: float) -> None:
-        """Hot-swap jump mode random walk settings."""
-        self.jump_random_walk = enabled
-        self.jump_random_walk_radius = radius
+    def apply_jump_settings(
+        self,
+        enabled: bool,
+        extra_wait: float | None = None,
+        move_seconds: float | None = None,
+    ) -> None:
+        """Apply post-arrival dwell settings for the next waypoint."""
+        self.jump_dwell_motion = enabled
+        if extra_wait is not None:
+            self.jump_extra_wait = max(0.0, float(extra_wait))
+        if move_seconds is not None:
+            self.jump_move_seconds = max(0.0, float(move_seconds))
 
     async def _move_along_route(
         self,

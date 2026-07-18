@@ -21,7 +21,7 @@ import PauseControl from './components/PauseControl'
 import StatusBar from './components/StatusBar'
 import { DeviceChipRow } from './components/DeviceChipRow'
 import type { FanoutOutcome } from './hooks/useSimulation'
-import { applyJumpRandomWalkSettings } from './extensions/custom/jumpRandomWalk'
+import { applyJumpDwellSettings } from './extensions/custom/jumpRandomWalk'
 import { optimizeRoute } from './extensions/custom/routeOptimizer'
 
 // Summarise a group fan-out result into a single toast string.
@@ -1550,9 +1550,11 @@ const App: React.FC = () => {
   //  - Running: show what's actually applied on the device (effectiveSpeed);
   //    changing the selector mid-route still needs 套用新速度 to take effect.
   const selectedSpeedDisplay = fmtSpeedFromInputs(sim.customSpeedKmh, sim.speedMinKmh, sim.speedMaxKmh)
-  const displaySpeed: number | string = isRunning && sim.effectiveSpeed
-    ? fmtSpeedFromInputs(sim.effectiveSpeed.kmh, sim.effectiveSpeed.min, sim.effectiveSpeed.max)
-    : selectedSpeedDisplay
+  const displaySpeed: number | string = isRunning && sim.dwellSpeedKmh != null
+    ? Math.round(sim.dwellSpeedKmh * 10) / 10
+    : isRunning && sim.effectiveSpeed
+      ? fmtSpeedFromInputs(sim.effectiveSpeed.kmh, sim.effectiveSpeed.min, sim.effectiveSpeed.max)
+      : selectedSpeedDisplay
 
   return (
     <div className="app-layout">
@@ -1913,22 +1915,20 @@ const App: React.FC = () => {
           onClickToAddWaypointChange={setClickToAddWaypoint}
           jumpMode={sim.jumpMode}
           onJumpModeChange={sim.setJumpMode}
-          jumpPreDelay={sim.jumpPreDelay}
-          onJumpPreDelayChange={sim.setJumpPreDelay}
-          jumpPostDelay={sim.jumpPostDelay}
-          onJumpPostDelayChange={sim.setJumpPostDelay}
-          jumpRandomWalk={sim.jumpRandomWalk}
-          onJumpRandomWalkChange={sim.setJumpRandomWalk}
-          jumpRandomWalkRadius={sim.jumpRandomWalkRadius}
-          onJumpRandomWalkRadiusChange={sim.setJumpRandomWalkRadius}
+          jumpDwellMotion={sim.jumpDwellMotion}
+          onJumpDwellMotionChange={sim.setJumpDwellMotion}
+          jumpExtraWait={sim.jumpExtraWait}
+          onJumpExtraWaitChange={sim.setJumpExtraWait}
+          jumpMoveSeconds={sim.jumpMoveSeconds}
+          onJumpMoveSecondsChange={sim.setJumpMoveSeconds}
           onApplyJumpSettings={async () => {
             const udids = device.connectedDevices.map((d) => d.udid)
             if (udids.length >= 2) {
               const outcome = await sim.applyJumpSettingsAll(udids)
-              showToast(toastForFanout(t, t('panel.apply_speed_success'), outcome, device.connectedDevices))
+              showToast(toastForFanout(t, t('panel.apply_jump_settings_success'), outcome, device.connectedDevices))
             } else {
-              await applyJumpRandomWalkSettings(sim.jumpRandomWalk, sim.jumpRandomWalkRadius)
-              showToast(t('panel.apply_speed_success'))
+              await applyJumpDwellSettings(sim.jumpDwellMotion, sim.jumpExtraWait, sim.jumpMoveSeconds)
+              showToast(t('panel.apply_jump_settings_success'))
             }
           }}
           openLibraryToken={openLibraryToken}

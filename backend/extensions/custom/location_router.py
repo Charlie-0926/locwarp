@@ -24,7 +24,12 @@ def build_custom_location_router(
     @router.post("/apply-jump-settings")
     async def apply_jump_settings(req: ApplyJumpSettingsRequest):
         engine = await engine_provider(req.udid)
-        if engine.state not in (SimulationState.LOOPING, SimulationState.MULTI_STOP):
+        route_states = (SimulationState.LOOPING, SimulationState.MULTI_STOP)
+        is_route_state = engine.state in route_states or (
+            engine.state == SimulationState.PAUSED
+            and getattr(engine, "_paused_from", None) in route_states
+        )
+        if not is_route_state:
             raise HTTPException(
                 status_code=400,
                 detail={
@@ -32,11 +37,19 @@ def build_custom_location_router(
                     "message": "目前不在巡邏或多點導航模式",
                 },
             )
-        engine.apply_jump_settings(req.jump_random_walk, req.jump_random_walk_radius)
+        engine.apply_jump_settings(
+            req.resolved_motion_enabled,
+            req.jump_extra_wait,
+            req.jump_move_seconds,
+        )
         return {
             "status": "applied",
-            "jump_random_walk": req.jump_random_walk,
-            "jump_random_walk_radius": req.jump_random_walk_radius,
+            "jump_dwell_motion": engine.jump_dwell_motion,
+            "jump_extra_wait": engine.jump_extra_wait,
+            "jump_move_seconds": engine.jump_move_seconds,
+            # Legacy response keys keep an old frontend's response type valid.
+            "jump_random_walk": engine.jump_dwell_motion,
+            "jump_random_walk_radius": 0.0,
         }
 
     @router.post("/spiral")

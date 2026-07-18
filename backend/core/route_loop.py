@@ -6,11 +6,10 @@ import asyncio
 import logging
 import math
 import random
-import random
 
 from models.schemas import Coordinate, MovementMode, SimulationState
 from config import resolve_speed_profile, SpeedProfile
-from core.multi_stop import jump_wait
+from core.multi_stop import jump_dwell_seconds, post_jump_dwell
 
 logger = logging.getLogger(__name__)
 
@@ -37,10 +36,9 @@ class RouteLooper:
         route_engine: str | None = None,
         lap_count: int | None = None,
         jump_mode: bool = False,
-        jump_pre_delay: float = 2.0,
-        jump_post_delay: float = 4.0,
-        jump_random_walk: bool = False,
-        jump_random_walk_radius: float = 10.0,
+        jump_dwell_motion: bool = False,
+        jump_extra_wait: float = 6.0,
+        jump_move_seconds: float = 4.0,
     ) -> None:
         """Build a multi-waypoint route that forms a closed loop, then
         traverse it repeatedly until stopped.
@@ -60,18 +58,17 @@ class RouteLooper:
 
         requested_start_index = max(0, min(int(start_index or 0), len(waypoints) - 1))
 
-        # Jump mode: teleport point-to-point with configurable pre / post
-        # delays instead of walking. Skips OSRM routing entirely. Resume /
+        # Jump mode: teleport point-to-point with all dwell after arrival.
+        # Skips OSRM routing entirely. Resume /
         # per-station random pause / speed profile are not used in this
         # mode because there's no continuous movement to interpolate.
         if jump_mode:
-            engine.jump_random_walk = jump_random_walk
-            engine.jump_random_walk_radius = jump_random_walk_radius
+            engine.jump_dwell_motion = jump_dwell_motion
+            engine.jump_extra_wait = max(0.0, float(jump_extra_wait))
+            engine.jump_move_seconds = max(0.0, float(jump_move_seconds))
             await _run_jump_loop(
                 engine,
                 waypoints,
-                pre_delay=max(0.0, float(jump_pre_delay)),
-                post_delay=max(0.0, float(jump_post_delay)),
                 lap_count=lap_count,
                 close_loop=True,
                 start_index=requested_start_index,
@@ -352,17 +349,11 @@ async def _run_jump_loop(
     engine,
     waypoints: list[Coordinate],
     *,
-    pre_delay: float,
-    post_delay: float,
     lap_count: int | None,
     close_loop: bool,
     start_index: int = 0,
 ) -> None:
-    """Teleport sequentially through *waypoints*. Each stop is preceded by
-    *pre_delay* seconds and followed by *post_delay* seconds. When
-    *close_loop* is True, the final teleport returns to waypoints[0]
-    (start of next lap). Stops cleanly when ``engine._stop_event`` is
-    set; pause freezes both delays."""
+    """Teleport through a closed route with post-arrival dwell only."""
     engine.state = SimulationState.LOOPING
     engine.total_segments = len(waypoints)
     engine.lap_count = 0
@@ -383,108 +374,144 @@ async def _run_jump_loop(
     })
 
     logger.info(
-        "Jump loop started: %d waypoints, pre=%.1fs post=%.1fs, laps=%s",
-        len(waypoints), pre_delay, post_delay, lap_count or "∞",
+        "Jump loop started: %d waypoints, wait=%.1fs, move=%.1fs, laps=%s",
+        len(waypoints), engine.jump_extra_wait,
+        engine.jump_move_seconds, lap_count or "∞",
     )
 
     limit = lap_count if (lap_count is not None and lap_count > 0) else None
 
-    first_iteration = True
+    async def emit_arrival(
+        original_i: int,
+        *,
+        eta_seconds: float,
+        progress: float,
+        lap_value: int | None = None,
+    ) -> Coordinate:
+        wp = waypoints[original_i]
+        next_i = min(original_i + 1, len(waypoints) - 1)
+        await engine._set_position(wp.lat, wp.lng)
+        engine.segment_index = original_i
+        engine._user_waypoint_next = (
+            1 if original_i == 0 else min(original_i + 1, len(waypoints))
+        )
+        await engine._emit("position_update", {
+            "lat": wp.lat,
+            "lng": wp.lng,
+            "speed_mps": 0.0,
+            "progress": progress,
+            "segment_index": original_i,
+            "total_segments": len(waypoints),
+            "lap_count": engine.lap_count if lap_value is None else lap_value,
+            "distance_traveled": 0.0,
+            "distance_remaining": 0.0,
+            "eta_seconds": eta_seconds,
+            "eta_arrival": "",
+            "is_paused": False,
+            "dwell_phase": "arrival",
+        })
+        await engine._emit("user_waypoint_advance", {
+            "current_index": original_i,
+            "next_index": next_i,
+        })
+        await engine._emit("waypoint_progress", {
+            "current_index": original_i,
+            "next_index": next_i,
+            "total": len(waypoints),
+        })
+        return wp
+
+    run_start = start_index
     while not engine._stop_event.is_set():
-        run_start = start_index if first_iteration else 0
-        for order_idx, original_i in enumerate(range(run_start, len(waypoints))):
-            wp = waypoints[original_i]
-            original_next = min(original_i + 1, len(waypoints) - 1)
+        for original_i in range(run_start, len(waypoints)):
             if engine._stop_event.is_set():
                 break
 
-            if await jump_wait(
-                engine, pre_delay, source="loop",
-                base_wp=wp, index=order_idx, total_waypoints=len(waypoints),
-                do_random_walk=False, pre_delay=pre_delay, post_delay=post_delay,
-                is_pre_delay=True
-            ):
-                break
-            if engine._stop_event.is_set():
-                break
-
-            await engine._set_position(wp.lat, wp.lng)
-            engine.segment_index = original_i
-            engine._user_waypoint_next = order_idx + 1
-            eta_secs = (len(waypoints) - 1 - order_idx) * (pre_delay + post_delay) + post_delay
-            await engine._emit("position_update", {
-                "lat": wp.lat, "lng": wp.lng,
-                "speed_mps": 0.0,
-                "progress": (order_idx + 1) / max(len(waypoints), 1),
-                "segment_index": original_i,
-                "total_segments": len(waypoints),
-                "lap_count": engine.lap_count,
-                "distance_traveled": 0.0,
-                "distance_remaining": 0.0,
-                "eta_seconds": eta_secs,
-                "eta_arrival": "",
-                "is_paused": False,
-            })
-            await engine._emit("user_waypoint_advance", {
-                "current_index": original_i,
-                "next_index": original_next,
-            })
-            await engine._emit("waypoint_progress", {
-                "current_index": original_i,
-                "next_index": original_next,
-                "total": len(waypoints),
-            })
-            if await jump_wait(
-                engine, post_delay, source="loop",
-                base_wp=wp, index=order_idx, total_waypoints=len(waypoints),
-                do_random_walk=getattr(engine, "jump_random_walk", False),
-                pre_delay=pre_delay, post_delay=post_delay,
-                is_pre_delay=False
+            motion_enabled = bool(engine.jump_dwell_motion)
+            extra_wait = max(0.0, float(engine.jump_extra_wait))
+            move_seconds = max(0.0, float(engine.jump_move_seconds))
+            dwell_seconds = jump_dwell_seconds(
+                motion_enabled,
+                extra_wait,
+                move_seconds,
+            )
+            remaining_dwell_count = len(waypoints) - original_i
+            wp = await emit_arrival(
+                original_i,
+                eta_seconds=remaining_dwell_count * dwell_seconds,
+                progress=(original_i + 1) / max(len(waypoints), 1),
+            )
+            if await post_jump_dwell(
+                engine,
+                source="loop",
+                base_wp=wp,
+                index=original_i,
+                total_waypoints=len(waypoints),
+                motion_enabled=motion_enabled,
+                extra_wait=extra_wait,
+                move_seconds=move_seconds,
+                future_seconds=max(remaining_dwell_count - 1, 0) * dwell_seconds,
             ):
                 break
 
         if engine._stop_event.is_set():
             break
 
-        # Teleport back to start before counting the lap so the visible
-        # path closes (only relevant for the closed-loop mode).
-        if close_loop and not engine._stop_event.is_set():
+        next_lap = engine.lap_count + 1
+        will_continue = limit is None or next_lap < limit
+        closure_motion_enabled = bool(engine.jump_dwell_motion)
+        closure_extra_wait = max(0.0, float(engine.jump_extra_wait))
+        closure_move_seconds = max(0.0, float(engine.jump_move_seconds))
+        closure_dwell_seconds = jump_dwell_seconds(
+            closure_motion_enabled,
+            closure_extra_wait,
+            closure_move_seconds,
+        )
+
+        if close_loop:
+            wp0 = await emit_arrival(
+                0,
+                eta_seconds=(
+                    len(waypoints) * closure_dwell_seconds
+                    if will_continue
+                    else 0.0
+                ),
+                progress=1.0,
+                lap_value=next_lap,
+            )
+        else:
             wp0 = waypoints[0]
-            if await jump_wait(
-                engine, pre_delay, source="loop",
-                base_wp=wp0, index=0, total_waypoints=len(waypoints),
-                do_random_walk=False, pre_delay=pre_delay, post_delay=post_delay,
-                is_pre_delay=True
-            ):
-                break
-            if engine._stop_event.is_set():
-                break
 
-            await engine._set_position(wp0.lat, wp0.lng)
-            await engine._emit("position_update", {
-                "lat": wp0.lat, "lng": wp0.lng,
-                "speed_mps": 0.0, "progress": 1.0,
-                "segment_index": 0, "total_segments": len(waypoints),
-                "lap_count": engine.lap_count + 1,
-                "distance_traveled": 0.0, "distance_remaining": 0.0,
-                "eta_seconds": 0.0, "eta_arrival": "", "is_paused": False,
-            })
-            await engine._emit("waypoint_progress", {
-                "current_index": 0,
-                "next_index": 1 if len(waypoints) > 1 else 0,
-                "total": len(waypoints),
-            })
-
-        first_iteration = False
-        engine.lap_count += 1
+        engine.lap_count = next_lap
         await engine._emit("lap_complete", {
-            "lap": engine.lap_count, "total": limit,
+            "lap": engine.lap_count,
+            "total": limit,
         })
-        logger.info("Jump loop lap %d%s complete",
-                    engine.lap_count, f"/{limit}" if limit else "")
-        if limit is not None and engine.lap_count >= limit:
+        logger.info(
+            "Jump loop lap %d%s complete",
+            engine.lap_count,
+            f"/{limit}" if limit else "",
+        )
+        if not will_continue:
             await engine._emit("loop_complete", {"laps": engine.lap_count})
             break
+
+        if close_loop and await post_jump_dwell(
+            engine,
+            source="loop",
+            base_wp=wp0,
+            index=0,
+            total_waypoints=len(waypoints),
+            motion_enabled=closure_motion_enabled,
+            extra_wait=closure_extra_wait,
+            move_seconds=closure_move_seconds,
+            future_seconds=max(len(waypoints) - 1, 0) * closure_dwell_seconds,
+        ):
+            break
+
+        # waypoint 0 was already reached (and dwelled) while closing the
+        # previous lap; continue at waypoint 1 without a duplicate teleport.
+        run_start = 1 if close_loop else 0
 
     if engine.state == SimulationState.LOOPING:
         engine.state = SimulationState.IDLE

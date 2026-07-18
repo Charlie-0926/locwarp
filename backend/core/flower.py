@@ -8,7 +8,7 @@ from typing import cast
 
 from models.schemas import Coordinate, MovementMode, SimulationState
 from config import SpeedProfile, resolve_speed_profile
-from core.multi_stop import jump_wait
+from core.multi_stop import interruptible_wait
 
 logger = logging.getLogger(__name__)
 
@@ -135,7 +135,7 @@ class FlowerHandler:
 
                 # ── Pre-move wait ──
                 if pre_wait > 0:
-                    if await jump_wait(engine, pre_wait, source="flower"):
+                    if await interruptible_wait(engine, pre_wait, source="flower"):
                         break
                 if engine._stop_event.is_set():
                     break
@@ -175,7 +175,7 @@ class FlowerHandler:
 
                 # ── Post-arrival wait ──
                 if post_wait > 0:
-                    if await jump_wait(engine, post_wait, source="flower"):
+                    if await interruptible_wait(engine, post_wait, source="flower"):
                         break
                 if engine._stop_event.is_set():
                     break

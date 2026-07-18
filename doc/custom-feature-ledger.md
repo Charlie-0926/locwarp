@@ -1,6 +1,6 @@
 # 客製功能帳本
 
-更新日期：2026-07-15
+更新日期：2026-07-18
 
 狀態定義：
 
@@ -12,7 +12,7 @@
 | 功能 | 狀態 | 主要檔案 | 後續處理 |
 |---|---|---|---|
 | Spiral／中心繞圈 | local-only | `backend/extensions/custom/spiral/`、`frontend/src/extensions/custom/spiral/` | 已完成第一階段 extension 遷移；核心只保留穩定接點 |
-| 等待期間隨機漫步 | local-only | `backend/extensions/custom/jump_random_walk/`、`frontend/src/extensions/custom/jumpRandomWalk/` | 已抽出 dwell policy、schema、API adapter 與控制面板；核心只保留呼叫接點 |
+| 到站後固定方向直線移動 | local-only | `backend/extensions/custom/jump_random_walk/`、`frontend/src/extensions/custom/jumpRandomWalk/` | 每站先等待 n 秒，再隨機選一次 bearing，以固定 15 km/h 移動可設定的 m 秒（預設 4）；保留舊目錄作 thin-fork 相容，舊 pre/post/radius contract 僅留一版正規化 |
 | 多裝置狀態同步與接手 | local-only | `backend/extensions/custom/multi_device/`、`frontend/src/extensions/custom/multiDevice/` | coordinator、runtime、fan-out 與啟動前對齊已抽離；`main.py` 僅保留相容 wrapper |
 | 2-opt 路徑最佳化 | upstream-candidate | `backend/extensions/custom/route_optimizer/`、`frontend/src/extensions/custom/routeOptimizer/` | 已改為 O(1) 增量候選成本並支援非對稱／不可達邊；私有 434 點資料由 134.100 秒降至 1.386 秒中位數（96.7×），距離相同；LKH-3 仍有非商業授權及 native 整合限制，詳見 `doc/2026-07-16-route-optimizer-lkh3-analysis.md` |
 | 單一執行個體鎖 | upstream-candidate | `instance_lock.py`、`main.py`、`start.py`、Electron main | 保留獨立 integration commit，可提官方 |

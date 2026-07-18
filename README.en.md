@@ -99,7 +99,11 @@ TB1i7pEcifAeh8oDLLZFqiRVrpUaZmmDAn
 
 #### Point-to-point Jump (v0.2.96+)
 
-Loop and Multi-stop modes have a **Point-to-point jump** checkbox. When enabled the device teleports stop-to-stop and dwells at each waypoint for a configurable interval (default 12 seconds, freely editable) instead of walking the routed path. Useful when you only need the iPhone to dwell at each waypoint in order. The setting is remembered in localStorage.
+Loop and Multi-stop modes have a **Point-to-point jump** checkbox. The device teleports immediately from stop to stop; all dwell happens after arrival. The configurable **Wait after arrival** defaults to 6 seconds and is stored in localStorage.
+
+- With **Move straight after waiting** enabled, every stop first waits `n` seconds, then chooses one random bearing and moves straight at 15 km/h for the configured `m` seconds. Movement defaults to 4 seconds, covers about `4.1667×m` metres, and makes the total post-arrival time `n+m` seconds.
+- With movement disabled, the device remains at the arrival coordinate for `n` seconds.
+- Pause freezes both phases, and hot apply takes effect at the next stop. A non-looping final waypoint and a finite loop's completion point remain on the exact requested coordinate without post-arrival movement.
 
 ### Multi-device Group Mode (v0.2.0+, up to three devices)
 

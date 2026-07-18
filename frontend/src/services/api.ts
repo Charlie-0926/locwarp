@@ -172,17 +172,15 @@ const sl = (v?: boolean) => (v ? { straight_line: true } : {})
 const re = (v?: string | null) => (v ? { route_engine: v } : {})
 export type JumpOpts = {
   jump_mode?: boolean;
-  jump_pre_delay?: number;
-  jump_post_delay?: number;
-  jump_random_walk?: boolean;
-  jump_random_walk_radius?: number;
+  jump_dwell_motion?: boolean;
+  jump_extra_wait?: number;
+  jump_move_seconds?: number;
 }
 const jm = (o?: JumpOpts) => (o?.jump_mode ? {
   jump_mode: true,
-  jump_pre_delay: o.jump_pre_delay ?? 2,
-  jump_post_delay: o.jump_post_delay ?? 4,
-  jump_random_walk: o.jump_random_walk ?? false,
-  jump_random_walk_radius: o.jump_random_walk_radius ?? 10.0,
+  jump_dwell_motion: o.jump_dwell_motion ?? false,
+  jump_extra_wait: o.jump_extra_wait ?? 6,
+  jump_move_seconds: o.jump_move_seconds ?? 4,
 } : {})
 export const navigate = (lat: number, lng: number, mode: string, speed?: SpeedOpts, udid?: string, straightLine?: boolean, routeEngine?: string) =>
   request<any>('POST', '/api/location/navigate', { lat, lng, mode, ...sp(speed), ...sl(straightLine), ...re(routeEngine), ...ud(udid) })
