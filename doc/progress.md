@@ -5,6 +5,10 @@
 - 已完整讀取 `locwarp-sync-upstream` skill、`doc/upstream-sync/README.md`、`doc/custom-feature-ledger.md`，以及 `scripts/rehearse-upstream.ps1`、`scripts/sync-upstream.ps1`、`scripts/check-extension-boundaries.ps1`、`scripts/verify.ps1`。
 - repository 內未找到實體 `AGENTS.md`；本次依對話提供的 AGENTS 指示執行，每個小任務完成後更新 `doc` 進度文件。
 - 初始檢查確認工作樹乾淨，且目前分支為 `custom/main`。
+- 已確認 remote 契約正確：`upstream` 指向 `keezxc1223/locwarp`，`origin` 指向 `Charlie-0926/locwarp`。
+- 已抓取官方 tags 與 `upstream/main`；官方從 `v0.2.190`（`c1a6c36`）前進到最新 tag `v0.2.192`（`aec015d`），其後另有 README commit `a1ebe20`。
+- 官方新增 3 個 commits，重點為右鍵「移動到」長選單捲動、前後端相依套件大版本升級，以及中英文 README 更新；抓取後 `custom/main...upstream/main` 分歧為 16／3。
+- 已建立本次同步報告：`doc/upstream-sync/2026-07-30-v0.2.192.md`。
 
 ## 2026-07-18：跳躍停留順序與移動秒數調整（已完成）
 
