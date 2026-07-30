@@ -23,6 +23,7 @@
 - 整合 staged diff 已逐檔 review；最終 `git diff --cached --check`、衝突標記掃描均通過，`doc/coordinates.txt` 未被追蹤且仍由 `.gitignore` 明確忽略。
 - 已在 `sync/upstream-v0.2.192` 建立雙親 merge commit `6211564`，父 commit 為客製 `bef82f0` 與官方 `a1ebe20`。
 - 已將 `custom/main` 以 `--ff-only` 推進至 sync branch 最新 commit `9f45017`；未改寫歷史。
+- fast-forward 後 rehearsal 已通過：`custom/main` `7efc5af` + `upstream/main` `a1ebe20` 無衝突。
 
 ## 2026-07-18：跳躍停留順序與移動秒數調整（已完成）
 
