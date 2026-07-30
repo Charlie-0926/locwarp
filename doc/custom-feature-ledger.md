@@ -1,6 +1,6 @@
 # 客製功能帳本
 
-更新日期：2026-07-18
+更新日期：2026-07-30
 
 狀態定義：
 
@@ -18,7 +18,7 @@
 | 單一執行個體鎖 | upstream-candidate | `instance_lock.py`、`main.py`、`start.py`、Electron main | 保留獨立 integration commit，可提官方 |
 | 套用速度跨路徑點維持 | available-upstream | `simulation_engine.py`、`route_loop.py`、`multi_stop.py` | 官方 v0.2.189 已提供；同步後採官方實作 |
 | Pyright／mypy 型別修正 | upstream-candidate | 多個 backend service/core 檔案 | 依模組拆成小 commits，優先提交官方 |
-| 打包與啟動器調整 | integration | `build-installer.bat`、`LocWarp.bat`、`start.py` | 與功能 extension 分開維護 |
+| 打包與啟動器調整 | integration | `build-installer.bat`、`LocWarp.bat`、`start.py` | 與功能 extension 分開維護；v0.2.192 同步後以官方 `pymobiledevice3` 10.1.0 為基準並保留 exact pin，維持 Python 3.13／PyInstaller 打包可重現性 |
 
 ## 基線
 

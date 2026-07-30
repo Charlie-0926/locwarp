@@ -10,6 +10,17 @@
 - 官方新增 3 個 commits，重點為右鍵「移動到」長選單捲動、前後端相依套件大版本升級，以及中英文 README 更新；抓取後 `custom/main...upstream/main` 分歧為 16／3。
 - 已建立本次同步報告：`doc/upstream-sync/2026-07-30-v0.2.192.md`。
 - merge rehearsal 已執行；`README.md`、`README.en.md`、`backend/requirements.txt` 有內容衝突，其餘官方變更可自動合併。下一步在正式 `sync/upstream-v0.2.192` 分支依官方意圖與客製功能帳本解決。
+- 正式同步已建立 `sync/upstream-v0.2.192`，並將本機 `main` 鏡像更新到官方 `a1ebe20`。
+- README 衝突採官方「多點路徑 / Multi-point Route」命名，完整保留客製的到站等待、固定方向直線移動、pause／hot-apply 與精確終點行為。
+- `backend/requirements.txt` 採官方 v0.2.192 的新版相依範圍，並將 `pymobiledevice3` 固定為官方目標版 `10.1.0`，保留客製打包的可重現性；衝突標記掃描與 `git diff --check` 均通過。
+- 官方 v0.2.192 lockfile 與 manifest 不一致，首次 `npm ci` 偵測到缺少 `@emnapi/core`／`@emnapi/runtime` 及 `@emnapi/wasi-threads` 版本不符；已用 `npm install` 校正 lockfile，第二次乾淨 `npm ci` 成功。
+- 已確認實際安裝 Electron 43.2.0、React／React DOM 19.2.8、TypeScript 7.0.2、Vite 8.1.5；npm audit 回報 18 個 high severity 項目，未在同步流程中執行可能導致 breaking changes 的 `npm audit fix --force`。
+- 本機 Python 3.13 原安裝位置已不存在，既有 venv 無法啟動；依 sync skill，Python pytest／Mypy（包含 2-opt regression）改由推送後的 `Custom compatibility` GitHub Actions 強制覆蓋。
+- `scripts/check-extension-boundaries.ps1` 已通過，確認官方更新未讓已抽離功能重新滲回核心，也未遺失必要 extension module。
+- 客製能力 wiring audit 共 39 項檢查全部通過，涵蓋 Spiral、Jump dwell／hot apply、2-opt、multi-device 對齊／鏡像／leader handoff、單一執行個體、跨 waypoint 速度維持，以及 Pyright／Mypy／async 相容接線。
+- 2-opt 實作與 regression test 已人工複核：固定起點、完整非重複 waypoint order、O(1) prefix-delta 候選成本、非對稱 matrix、`None` 不可達邊拒絕，以及對稱／非對稱 first-improvement oracle 覆蓋均仍存在。
+- `scripts/verify.ps1` 全部通過：extension boundaries、Backend Pyright（0 errors／warnings）、Electron syntax、React 19 + TypeScript 7 型別檢查及 Vite 8 production build。僅有既存 dynamic-import／大型 chunk 警告。
+- 整合 staged diff 已逐檔 review；最終 `git diff --cached --check`、衝突標記掃描均通過，`doc/coordinates.txt` 未被追蹤且仍由 `.gitignore` 明確忽略。
 
 ## 2026-07-18：跳躍停留順序與移動秒數調整（已完成）
 
