@@ -1,5 +1,11 @@
 # 專案進度
 
+## 2026-07-30：上游同步 preflight
+
+- 已完整讀取 `locwarp-sync-upstream` skill、`doc/upstream-sync/README.md`、`doc/custom-feature-ledger.md`，以及 `scripts/rehearse-upstream.ps1`、`scripts/sync-upstream.ps1`、`scripts/check-extension-boundaries.ps1`、`scripts/verify.ps1`。
+- repository 內未找到實體 `AGENTS.md`；本次依對話提供的 AGENTS 指示執行，每個小任務完成後更新 `doc` 進度文件。
+- 初始檢查確認工作樹乾淨，且目前分支為 `custom/main`。
+
 ## 2026-07-18：跳躍停留順序與移動秒數調整（已完成）
 
 - 使用者已確認前一版固定方向 15 km/h／4 秒移動在單台與雙台實機均正常。
