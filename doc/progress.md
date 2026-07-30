@@ -24,6 +24,10 @@
 - 已在 `sync/upstream-v0.2.192` 建立雙親 merge commit `6211564`，父 commit 為客製 `bef82f0` 與官方 `a1ebe20`。
 - 已將 `custom/main` 以 `--ff-only` 推進至 sync branch 最新 commit `9f45017`；未改寫歷史。
 - fast-forward 後 rehearsal 已通過：`custom/main` `7efc5af` + `upstream/main` `a1ebe20` 無衝突。
+- 已非 force push：`origin/main` 更新至官方鏡像 `a1ebe20`，`origin/custom/main` 更新至已驗證程式碼 commit `910652a`。
+- `Custom compatibility` run `30529997877` 已成功；backend requirements 安裝、extension pytest（含 2-opt）、Mypy、Pyright，以及 frontend `npm ci`、TypeScript、production build 全部通過。
+- CI URL：<https://github.com/Charlie-0926/locwarp/actions/runs/30529997877>
+- 尚待實機確認：pymobiledevice3 10.1.0 的 USB／Wi-Fi tunnel 與兩台 iPhone 的 multi-device auto-sync、UI mirroring、state alignment、leader handoff；CI 不取代實機行為驗證。
 
 ## 2026-07-18：跳躍停留順序與移動秒數調整（已完成）
 
