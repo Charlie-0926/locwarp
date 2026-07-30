@@ -9,6 +9,7 @@
 - 已抓取官方 tags 與 `upstream/main`；官方從 `v0.2.190`（`c1a6c36`）前進到最新 tag `v0.2.192`（`aec015d`），其後另有 README commit `a1ebe20`。
 - 官方新增 3 個 commits，重點為右鍵「移動到」長選單捲動、前後端相依套件大版本升級，以及中英文 README 更新；抓取後 `custom/main...upstream/main` 分歧為 16／3。
 - 已建立本次同步報告：`doc/upstream-sync/2026-07-30-v0.2.192.md`。
+- merge rehearsal 已執行；`README.md`、`README.en.md`、`backend/requirements.txt` 有內容衝突，其餘官方變更可自動合併。下一步在正式 `sync/upstream-v0.2.192` 分支依官方意圖與客製功能帳本解決。
 
 ## 2026-07-18：跳躍停留順序與移動秒數調整（已完成）
 
