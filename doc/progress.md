@@ -21,6 +21,7 @@
 - 2-opt 實作與 regression test 已人工複核：固定起點、完整非重複 waypoint order、O(1) prefix-delta 候選成本、非對稱 matrix、`None` 不可達邊拒絕，以及對稱／非對稱 first-improvement oracle 覆蓋均仍存在。
 - `scripts/verify.ps1` 全部通過：extension boundaries、Backend Pyright（0 errors／warnings）、Electron syntax、React 19 + TypeScript 7 型別檢查及 Vite 8 production build。僅有既存 dynamic-import／大型 chunk 警告。
 - 整合 staged diff 已逐檔 review；最終 `git diff --cached --check`、衝突標記掃描均通過，`doc/coordinates.txt` 未被追蹤且仍由 `.gitignore` 明確忽略。
+- 已在 `sync/upstream-v0.2.192` 建立雙親 merge commit `6211564`，父 commit 為客製 `bef82f0` 與官方 `a1ebe20`。
 
 ## 2026-07-18：跳躍停留順序與移動秒數調整（已完成）
 
