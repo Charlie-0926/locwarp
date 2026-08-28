@@ -3,7 +3,8 @@ import { useT } from '../i18n';
 import { reverseGeocode } from '../services/api';
 import L from 'leaflet';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import maplibregl from 'maplibre-gl';
+import * as maplibregl from 'maplibre-gl';
+import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 import '@maplibre/maplibre-gl-leaflet';
 import { cellsInBounds, approxCellSizeMeters } from '../services/s2grid';
 import type { S2CellPolygon } from '../services/s2grid';
@@ -13,9 +14,17 @@ import Supercluster from 'supercluster';
 // MapLibre's Leaflet binding looks up `window.maplibregl` rather than
 // taking it as a constructor argument. Hoist it once at module load so
 // `L.maplibreGL({ ... })` resolves correctly when the layer is created.
+// maplibre-gl 6 dropped the default export (ESM-only, named exports
+// throughout), so this must be a namespace import.
 if (typeof window !== 'undefined' && !(window as any).maplibregl) {
   (window as any).maplibregl = maplibregl;
 }
+
+// maplibre-gl 6 derives its worker URL from `import.meta.url` and gives up
+// when that isn't http(s) — which is exactly the packaged Electron case
+// (the app is loaded over file://). Point it at the worker chunk Vite
+// emits for us instead.
+maplibregl.config.WORKER_URL = maplibreWorkerUrl;
 
 interface Position {
   lat: number;
