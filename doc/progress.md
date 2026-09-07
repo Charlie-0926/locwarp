@@ -16,6 +16,7 @@
 - `scripts/verify.ps1` 已完整通過：extension boundaries、Backend Pyright（0 errors／warnings／informations）、Electron syntax、Frontend TypeScript 與 Vite production build；先前 build 失敗確認是舊 `node_modules`，乾淨 `npm ci` 對齊 MapLibre 6.6.0 後成功。
 - Backend 完整測試 `19 passed`（含 extension 與 WiFi tunnel runtime）；本機 Mypy 安裝至既有 venv 後執行 `--ignore-missing-imports backend`，61 個 source files 無 issues。
 - 已在 `sync/upstream-v0.2.196` 建立雙親 merge commit `3d271cf`，父 commit 為客製 `2d54421` 與官方 `271779b`；staged diff、空白與衝突標記檢查均通過。
+- 已將 `sync/upstream-v0.2.196` 以 `--ff-only` 推進 `custom/main` 至 `6831504`；最終 rehearsal 通過：`custom/main (6831504) + upstream/main (271779b)` 無衝突。
 
 ## 2026-08-16：上游同步 skill 版本一致性關卡
 
