@@ -24,7 +24,7 @@
 - `origin/main` 已推送至官方同步提交 `271779bef895c2443ebde4cdbe3e35bbf72be6de`。
 - `origin/custom/main` 已推送同步後客製程式碼提交 `79dded326428e528949512e5a0bf645fdf4fa18b`。
 - `Custom compatibility` 已成功完成：[Run 34088608570](https://github.com/Charlie-0926/locwarp/actions/runs/34088608570)；frontend 與 backend job 全部通過。GitHub 僅回報 Node.js 20 action deprecation annotation，未影響結果。
-- 發布結果與 CI URL 已補入 `doc/upstream-sync/2026-09-07-v0.2.196.md`，並準備以文件提交同步至客製分支。
+- 發布結果與 CI URL 已補入 `doc/upstream-sync/2026-09-07-v0.2.196.md`，並以文件提交 `839bc5f` 同步至客製分支；最後 fetch 核對本機／遠端 refs 一致，工作樹乾淨。
 
 ## 2026-08-16：上游同步 skill 版本一致性關卡
 
