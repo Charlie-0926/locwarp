@@ -8,6 +8,13 @@
 - 已抓取 `upstream` 的 tags 與 prune；官方最新 release 為 `v0.2.196`，commit `271779b`，正規化版本與 `upstream/main:frontend/package.json` 均為 `0.2.196`。
 - 抓取後 `custom/main...upstream/main` 分歧為 `24/4`；官方 tag 與 manifest 一致，未觸發版本阻擋。
 - `scripts/rehearse-upstream.ps1 -SkipFetch` 已完成預演；官方 v0.2.196 與客製分支在 `backend/api/device.py`、`backend/requirements.txt`、`frontend/package-lock.json` 發生內容衝突，尚未修改工作樹。
+- 正式同步已建立 `sync/upstream-v0.2.196`，並將本機 `main` 鏡像更新至官方 `271779b`；衝突仍只停留在同步分支。
+- 衝突分析確認官方 v0.2.193 的 WiFi RemotePairing port 自動掃描需保留；客製 `WifiTunnelRuntimeError`／Python 3.13 錯誤映射、官方 v0.2.196 的 `pymobiledevice3` 11.2.0 相依升級與前端 lockfile 更新將在同步分支整合。
+- 已用官方 tag `v0.2.196` 驗證並同步客製版本；`frontend/package.json`、`frontend/package-lock.json` 頂層 `version` 與 `packages[""].version` 均為 `0.2.196`。
+- `scripts/check-extension-boundaries.ps1` 已通過；必要 custom extension 模組未遺失，也沒有重新滲回官方核心的受禁用實作。
+- 2-opt regression 已通過：`5 passed`；第一次執行僅被 venv 的 xonsh console plugin 阻斷，改以 `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1` 重跑後成功。
+- `scripts/verify.ps1` 已完整通過：extension boundaries、Backend Pyright（0 errors／warnings／informations）、Electron syntax、Frontend TypeScript 與 Vite production build；先前 build 失敗確認是舊 `node_modules`，乾淨 `npm ci` 對齊 MapLibre 6.6.0 後成功。
+- Backend 完整測試 `19 passed`（含 extension 與 WiFi tunnel runtime）；本機 Mypy 安裝至既有 venv 後執行 `--ignore-missing-imports backend`，61 個 source files 無 issues。
 
 ## 2026-08-16：上游同步 skill 版本一致性關卡
 

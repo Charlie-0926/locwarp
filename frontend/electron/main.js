@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, shell, ipcMain } = require('electron')
+const { app, BrowserWindow, Menu, shell, ipcMain, dialog } = require('electron')
 const path = require('path')
 const { spawn } = require('child_process')
 const http = require('http')
@@ -227,14 +227,89 @@ function resolveBackendExe() {
   return null
 }
 
+// The backend exe is an unsigned PyInstaller bundle, which antivirus engines
+// (Defender included) sometimes quarantine hours after a successful install.
+// Without this, the missing file surfaces as a raw "spawn ... ENOENT" uncaught
+// exception that says nothing about what to do. Show an actionable message and
+// offer to open the folder so the user can see for themselves it is gone.
+function showBackendMissingDialog(exe, detail) {
+  const zh = (app.getLocale() || '').toLowerCase().startsWith('zh')
+  const msg = zh
+    ? {
+        title: 'LocWarp 無法啟動',
+        message: '找不到背景服務 (locwarp-backend.exe)',
+        detail:
+          '這個檔案通常是被防毒軟體 (Windows Defender 或第三方防毒) 判定為可疑並隔離刪除。\n\n' +
+          '解決步驟：\n' +
+          '1. 開啟「Windows 安全性」→「病毒與威脅防護」→「防護歷程記錄」，若有 LocWarp 相關項目請按「還原」。\n' +
+          '2. 在「排除項目」中新增資料夾：\n' +
+          '   C:\\Program Files\\LocWarp\n' +
+          '3. 移除 LocWarp 後重新安裝 (安裝檔請以系統管理員身分執行)。\n\n' +
+          '若使用第三方防毒，請先將 LocWarp 加入白名單再重裝。\n\n' +
+          `預期路徑：\n${exe}` +
+          (detail ? `\n\n${detail}` : ''),
+        buttons: ['開啟安裝資料夾', '關閉'],
+      }
+    : {
+        title: 'LocWarp cannot start',
+        message: 'Backend service not found (locwarp-backend.exe)',
+        detail:
+          'This file is usually removed by antivirus software (Windows Defender or a third-party product) that flagged it as suspicious.\n\n' +
+          'How to fix:\n' +
+          '1. Open Windows Security > Virus & threat protection > Protection history, and restore any LocWarp entry.\n' +
+          '2. Add an exclusion for the folder:\n' +
+          '   C:\\Program Files\\LocWarp\n' +
+          '3. Uninstall LocWarp, then reinstall (run the installer as administrator).\n\n' +
+          'With third-party antivirus, allowlist LocWarp before reinstalling.\n\n' +
+          `Expected path:\n${exe}` +
+          (detail ? `\n\n${detail}` : ''),
+        buttons: ['Open install folder', 'Close'],
+      }
+
+  const choice = dialog.showMessageBoxSync({
+    type: 'error',
+    title: msg.title,
+    message: msg.message,
+    detail: msg.detail,
+    buttons: msg.buttons,
+    defaultId: 0,
+    cancelId: 1,
+    noLink: true,
+  })
+  if (choice === 0) {
+    // The backend folder itself may be gone too; fall back to the app root.
+    const dir = fs.existsSync(path.dirname(exe)) ? path.dirname(exe) : process.resourcesPath
+    shell.openPath(dir)
+  }
+  app.quit()
+}
+
 function startBackend() {
   const exe = resolveBackendExe()
   if (!exe) return
+  if (!fs.existsSync(exe)) {
+    console.error('[electron] backend exe missing:', exe)
+    showBackendMissingDialog(exe, null)
+    return
+  }
   console.log('[electron] spawning backend:', exe)
-  backendProc = spawn(exe, [], {
-    cwd: path.dirname(exe),
-    stdio: ['ignore', 'pipe', 'pipe'],
-    windowsHide: true,
+  try {
+    backendProc = spawn(exe, [], {
+      cwd: path.dirname(exe),
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+    })
+  } catch (e) {
+    console.error('[electron] backend spawn threw:', e)
+    showBackendMissingDialog(exe, String(e && e.message ? e.message : e))
+    return
+  }
+  // spawn() reports ENOENT/EACCES asynchronously; without this handler the
+  // error becomes an uncaught exception in the main process.
+  backendProc.on('error', (e) => {
+    console.error('[electron] backend spawn error:', e)
+    backendProc = null
+    showBackendMissingDialog(exe, String(e && e.message ? e.message : e))
   })
   backendProc.stdout.on('data', (d) => process.stdout.write(`[backend] ${d}`))
   backendProc.stderr.on('data', (d) => process.stderr.write(`[backend] ${d}`))

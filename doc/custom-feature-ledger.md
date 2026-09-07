@@ -1,6 +1,6 @@
 # 客製功能帳本
 
-更新日期：2026-07-30
+更新日期：2026-09-07
 
 狀態定義：
 
@@ -18,14 +18,14 @@
 | 單一執行個體鎖 | upstream-candidate | `instance_lock.py`、`main.py`、`start.py`、Electron main | 保留獨立 integration commit，可提官方 |
 | 套用速度跨路徑點維持 | available-upstream | `simulation_engine.py`、`route_loop.py`、`multi_stop.py` | 官方 v0.2.189 已提供；同步後採官方實作 |
 | Pyright／mypy 型別修正 | upstream-candidate | 多個 backend service/core 檔案 | 依模組拆成小 commits，優先提交官方 |
-| 打包與啟動器調整 | integration | `build-installer.bat`、`LocWarp.bat`、`start.py` | 與功能 extension 分開維護；v0.2.192 同步後以官方 `pymobiledevice3` 10.1.0 為基準並保留 exact pin，維持 Python 3.13／PyInstaller 打包可重現性 |
+| 打包與啟動器調整 | integration | `build-installer.bat`、`LocWarp.bat`、`start.py` | 與功能 extension 分開維護；v0.2.196 採官方 `pymobiledevice3>=11.2.0`，保留客製 Python 3.13／TLS-PSK 預檢與 PyInstaller 的 `pmd_pytcp`、DDI、pyimg4 收集，維持 WiFi tunnel 與打包接線 |
 
 ## 基線
 
 - 官方共同基底：`v0.2.177`（commit `53042c6`）
 - 官方鏡像分支：`main` → `upstream/main`
 - 客製發布分支：`custom/main`
-- 建立基線時官方最新：`v0.2.190`（commit `c1a6c36`）
+- 建立基線時官方最新：`v0.2.196`（commit `271779b`）
 
 ## 自動化保護
 
