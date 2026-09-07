@@ -1,5 +1,21 @@
 # 專案進度
 
+## 2026-09-07：LocWarp 上游同步啟動
+
+- 已依 `locwarp-sync-upstream` 技能讀取同步規範、`doc/upstream-sync/README.md`、`doc/custom-feature-ledger.md` 及四個同步／驗證腳本。
+- repository 內未找到實體 `AGENTS.md`；本次依對話提供的規範執行，並保留既有未提交的版本一致性紀錄。
+- 初始檢查確認目前分支為 `custom/main`，遠端契約正確；工作樹原本只有既有的 `doc/progress.md` 變更，已安全保留後恢復。
+
+## 2026-08-16：上游同步 skill 版本一致性關卡
+
+- 已更新 `C:\Users\charlielaptop\.codex\skills\locwarp-sync-upstream\SKILL.md`，要求每次合併官方更新時，以官方 release tag（例如 `v0.2.192`）去除前導 `v` 後的版本作為應用程式版本，並在驗證與提交前同步客製版本。
+- 要求 `frontend/package.json`、`frontend/package-lock.json` 頂層 `version` 與 `packages[""]` 的 `version` 三處完全一致；流程使用 `npm version --no-git-tag-version --allow-same-version` 更新版本中繼資料且不建立 Git tag。
+- 已要求官方 release tag 與 `upstream/main:frontend/package.json` 必須一致；若兩者不一致就停止同步並調查，不可默默選用其中之一。另不可僅為了配合應用程式版本而修改 `backend/main.py` 的 FastAPI schema 版本。
+- 已將版本一致性加入同步報告、完成報告與發布前安全檢查。
+- 已用 `quick_validate.py` 驗證 skill 結構（`Skill is valid!`），並以 `npm version 0.2.192 --no-git-tag-version --allow-same-version --dry-run` 驗證命令可執行；SHA-256 前後比對確認兩個正式版本檔均未改動。
+- 已核對 `frontend/src/components/UpdateChecker.tsx`：GitHub release tag（例如 `v0.2.192`）會先移除 `v`，再與 `frontend/package.json` 的 `0.2.192` 比較；因此 skill 新增的 manifest 版本同步正是用來避免同步後仍誤報有新版。既有安裝檔若仍內含舊版本，仍須重新建置與安裝。
+- 已實際驗證目前同步參照：tag `v0.2.192`、正規化版本 `0.2.192`、官方 manifest `0.2.192`，以及客製 package/lockfile 三處 `0.2.192` 全部一致；修正後 skill 再次通過 `quick_validate.py`。
+
 ## 2026-07-30：上游同步 preflight
 
 - 已完整讀取 `locwarp-sync-upstream` skill、`doc/upstream-sync/README.md`、`doc/custom-feature-ledger.md`，以及 `scripts/rehearse-upstream.ps1`、`scripts/sync-upstream.ps1`、`scripts/check-extension-boundaries.ps1`、`scripts/verify.ps1`。
