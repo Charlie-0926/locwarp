@@ -18,6 +18,14 @@
 - 已在 `sync/upstream-v0.2.196` 建立雙親 merge commit `3d271cf`，父 commit 為客製 `2d54421` 與官方 `271779b`；staged diff、空白與衝突標記檢查均通過。
 - 已將 `sync/upstream-v0.2.196` 以 `--ff-only` 推進 `custom/main` 至 `6831504`；最終 rehearsal 通過：`custom/main (6831504) + upstream/main (271779b)` 無衝突。
 
+## 2026-09-07：發布 v0.2.196
+
+- 已取得使用者明確授權，刷新 `origin` 參照後確認兩個 push 都可安全以非 force 方式執行。
+- `origin/main` 已推送至官方同步提交 `271779bef895c2443ebde4cdbe3e35bbf72be6de`。
+- `origin/custom/main` 已推送同步後客製程式碼提交 `79dded326428e528949512e5a0bf645fdf4fa18b`。
+- `Custom compatibility` 已成功完成：[Run 34088608570](https://github.com/Charlie-0926/locwarp/actions/runs/34088608570)；frontend 與 backend job 全部通過。GitHub 僅回報 Node.js 20 action deprecation annotation，未影響結果。
+- 發布結果與 CI URL 已補入 `doc/upstream-sync/2026-09-07-v0.2.196.md`，並準備以文件提交同步至客製分支。
+
 ## 2026-08-16：上游同步 skill 版本一致性關卡
 
 - 已更新 `C:\Users\charlielaptop\.codex\skills\locwarp-sync-upstream\SKILL.md`，要求每次合併官方更新時，以官方 release tag（例如 `v0.2.192`）去除前導 `v` 後的版本作為應用程式版本，並在驗證與提交前同步客製版本。
