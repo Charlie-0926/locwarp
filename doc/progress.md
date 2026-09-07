@@ -7,6 +7,7 @@
 - 初始檢查確認目前分支為 `custom/main`，遠端契約正確；工作樹原本只有既有的 `doc/progress.md` 變更，已安全保留後恢復。
 - 已抓取 `upstream` 的 tags 與 prune；官方最新 release 為 `v0.2.196`，commit `271779b`，正規化版本與 `upstream/main:frontend/package.json` 均為 `0.2.196`。
 - 抓取後 `custom/main...upstream/main` 分歧為 `24/4`；官方 tag 與 manifest 一致，未觸發版本阻擋。
+- `scripts/rehearse-upstream.ps1 -SkipFetch` 已完成預演；官方 v0.2.196 與客製分支在 `backend/api/device.py`、`backend/requirements.txt`、`frontend/package-lock.json` 發生內容衝突，尚未修改工作樹。
 
 ## 2026-08-16：上游同步 skill 版本一致性關卡
 
