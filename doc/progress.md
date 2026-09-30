@@ -323,3 +323,10 @@
 - 已讀取 `locwarp-sync-upstream` 流程、同步文件、功能清單及同步／驗證腳本；起始 `custom/main` 工作樹乾淨，`doc/coordinates.txt` 仍受 `.gitignore` 保護。
 - 已抓取官方 tags 與 `upstream/main`：head `964d8aa`，最新 release tag `v0.2.199`（`70b88f0`），正規化版本與官方 manifest 均為 `0.2.199`；tag 後另有三筆安裝說明修正。
 - `custom/main...upstream/main` 分歧為 31／10 commits。合併預演顯示 README 中英文版、`backend/core/flower.py`、`backend/core/simulation_engine.py`、`backend/services/geocoding.py` 五個衝突檔；將於同步分支逐一處理。
+
+## 同步整合進度
+
+- `sync/upstream-v0.2.199` 已合併官方 head `964d8aa`，並解決五個衝突檔。花農保留官方同站重試、客製可暫停等待與跨路段速度套用；一般路線推送失敗仍會停止，花農路線可交由重試迴圈處理。
+- 地理編碼採官方 Photon 反查與快取，同時保留客製的型別標註；README 以官方新版為基礎，修正客製點對點跳躍的說明。
+- `npm version` 對齊官方 tag 後，`frontend/package.json`、lockfile 頂層及 lockfile root package 版本均為 `0.2.199`。尚待完整驗證與發布。
+- 完整驗證已通過：extension boundaries、Pyright、Electron syntax、TypeScript、Vite build、Mypy、backend pytest 20 passed、2-opt 5 passed、diff/衝突標記掃描。新增花農推送失敗後於同站重試的回歸測試；詳細整合記錄見 `doc/upstream-sync/2026-09-30-v0.2.199.md`。

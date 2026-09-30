@@ -149,6 +149,10 @@ class SimulationEngine:
         self._active_route_coords: list[Coordinate] = []
         self._active_speed_profile: "SpeedProfile | None" = None
         self._pending_speed_profile: "SpeedProfile | None" = None
+        # True when the last _move_along_route gave up on push failures
+        # instead of finishing, so finite handlers (flower) can retry the
+        # leg rather than silently skipping ahead.
+        self._route_push_failed: bool = False
         # User-facing waypoints used for waypoint_progress emission.
         # Set by route_loop / multi_stop / navigator before each call to
         # _move_along_route, so highlight events refer to the named
@@ -906,6 +910,8 @@ class SimulationEngine:
         self,
         coords: list[Coordinate],
         speed_profile: "SpeedProfile",
+        *,
+        retry_on_push_failure: bool = False,
     ) -> None:
         """Core movement loop shared by navigate, loop, multi-stop, and
         random walk modes.
@@ -933,6 +939,7 @@ class SimulationEngine:
         if not self._speed_was_applied or self._active_speed_profile is None:
             self._active_speed_profile = cast(SpeedProfile, dict(speed_profile))
         self._pending_speed_profile = None
+        self._route_push_failed = False
         self.total_segments = max(len(coords) - 1, 0)
 
         # Outer loop: each iteration plans a fresh interpolation of the
@@ -1093,8 +1100,11 @@ class SimulationEngine:
                         break
                 if not pushed:
                     logger.error("Giving up on this route after repeated push failures")
-                    self._stop_event.set()
-                    raise RuntimeError("Position push failed repeatedly; route stopped")
+                    self._route_push_failed = True
+                    if not retry_on_push_failure:
+                        self._stop_event.set()
+                        raise RuntimeError("Position push failed repeatedly; route stopped")
+                    break
 
                 # Update tracking
                 self.distance_traveled += step_dist
@@ -1207,6 +1217,7 @@ class SimulationEngine:
         if (
             user_wps
             and not self._stop_event.is_set()
+            and not self._route_push_failed
             and self._user_waypoint_next < len(user_wps)
             and wp_hit_ptr < len(wp_seg_idx)
         ):
