@@ -318,3 +318,8 @@
 - 修復 (重大)：後端 `simulation_engine.py` 在比對使用者節點與路徑點的進度計算中，存在 $O(N^2)$ 的效能瓶頸。當輸入點位高達 11,731 個時，會觸發超過 6,800 萬次的距離計算，導致引擎陷入死結無法推播位置更新。現已加入「距離小於 1 公尺提早跳出 (early exit)」的最佳化邏輯，解決了卡住不移動的狀況。
 - 優化：前端 `ControlPanel.tsx` 現在會在選取「中心繞圈」時，自動隱藏「沿著道路移動」選項與「導航引擎」下拉選單。
 - 修復：解決了在繞圈途中按下停止，並立刻開始新繞圈時，前端介面會丟失路徑與 ETA 但背景仍在移動的 Asyncio 競態條件 (Race Condition) 漏洞。現已確保 `_run_handler` 的 `finally` 區塊不會錯誤重置新任務的狀態。
+# 2026-09-30：v0.2.199 上游同步前置檢查
+
+- 已讀取 `locwarp-sync-upstream` 流程、同步文件、功能清單及同步／驗證腳本；起始 `custom/main` 工作樹乾淨，`doc/coordinates.txt` 仍受 `.gitignore` 保護。
+- 已抓取官方 tags 與 `upstream/main`：head `964d8aa`，最新 release tag `v0.2.199`（`70b88f0`），正規化版本與官方 manifest 均為 `0.2.199`；tag 後另有三筆安裝說明修正。
+- `custom/main...upstream/main` 分歧為 31／10 commits。合併預演顯示 README 中英文版、`backend/core/flower.py`、`backend/core/simulation_engine.py`、`backend/services/geocoding.py` 五個衝突檔；將於同步分支逐一處理。
