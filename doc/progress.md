@@ -330,3 +330,4 @@
 - 地理編碼採官方 Photon 反查與快取，同時保留客製的型別標註；README 以官方新版為基礎，修正客製點對點跳躍的說明。
 - `npm version` 對齊官方 tag 後，`frontend/package.json`、lockfile 頂層及 lockfile root package 版本均為 `0.2.199`。尚待完整驗證與發布。
 - 完整驗證已通過：extension boundaries、Pyright、Electron syntax、TypeScript、Vite build、Mypy、backend pytest 20 passed、2-opt 5 passed、diff/衝突標記掃描。新增花農推送失敗後於同站重試的回歸測試；詳細整合記錄見 `doc/upstream-sync/2026-09-30-v0.2.199.md`。
+- 同步 merge commit `6d8edc8` 已 fast-forward 至 `custom/main`；本地 `main` 等於官方 head `964d8aa`，最終 rehearsal 通過。接著發布並監看 CI。
