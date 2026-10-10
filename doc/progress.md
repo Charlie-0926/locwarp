@@ -8,6 +8,7 @@
 - 正式同步已建立 `sync/upstream-v0.2.200`，無衝突合併官方 head `bac5bbb`；同步腳本的 extension boundaries、Pyright、Electron syntax、TypeScript、Vite build 均通過。本地 `main` 已鏡像官方 head。
 - 已依官方 tag 執行 `npm version 0.2.200 --no-git-tag-version --allow-same-version`；客製 `frontend/package.json`、lockfile 頂層及 root package 版本均為 `0.2.200`，待以新依賴完整驗證。
 - 已依新 lockfile 執行 `npm ci`，並在 venv 安裝官方新版 Python 依賴。完整本機驗證通過：extension boundaries、Pyright、Electron syntax、TypeScript、Vite build、backend 20 tests、2-opt 5 tests、Mypy 62 files、`pip check` 及 backend import smoke。詳細版本、稽核與實機待驗項目見 `doc/upstream-sync/2026-10-11-v0.2.200.md`。
+- 同步 merge commit `cbb6bda` 與版本／報告提交 `43b5d71` 已 review；`custom/main` fast-forward 至 `43b5d71`，最終 rehearsal 通過。本地 `main` 等於官方 `bac5bbb`，待發布與 CI。
 
 ## 2026-09-07：LocWarp 上游同步啟動
 
