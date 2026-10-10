@@ -1,5 +1,11 @@
 # 專案進度
 
+## 2026-10-11：v0.2.200 上游同步前置檢查
+
+- 已依 `locwarp-sync-upstream` 讀取同步規範、操作手冊、功能帳本及四個同步／驗證腳本；repository 內沒有實體 `AGENTS.md`，依本對話提供的指示更新 `doc` 進度。`custom/main` 工作樹乾淨，遠端設定正確，`doc/coordinates.txt` 仍由 Git 忽略。
+- 已抓取官方 tags 與 `upstream/main`：最新 release tag `v0.2.200`（`ba0be6c`），官方 head `bac5bbb` 另含一筆 README 修正；正規化版本及官方 manifest 都是 `0.2.200`。
+- `custom/main...upstream/main` 分歧為 35／2 commits。官方更新涵蓋 `pymobiledevice3` 11.26、後端依賴、Electron 44.7、MapLibre 6.13 及 README；合併預演通過，無內容衝突。
+
 ## 2026-09-07：LocWarp 上游同步啟動
 
 - 已依 `locwarp-sync-upstream` 技能讀取同步規範、`doc/upstream-sync/README.md`、`doc/custom-feature-ledger.md` 及四個同步／驗證腳本。
