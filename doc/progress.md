@@ -9,6 +9,7 @@
 - 已依官方 tag 執行 `npm version 0.2.200 --no-git-tag-version --allow-same-version`；客製 `frontend/package.json`、lockfile 頂層及 root package 版本均為 `0.2.200`，待以新依賴完整驗證。
 - 已依新 lockfile 執行 `npm ci`，並在 venv 安裝官方新版 Python 依賴。完整本機驗證通過：extension boundaries、Pyright、Electron syntax、TypeScript、Vite build、backend 20 tests、2-opt 5 tests、Mypy 62 files、`pip check` 及 backend import smoke。詳細版本、稽核與實機待驗項目見 `doc/upstream-sync/2026-10-11-v0.2.200.md`。
 - 同步 merge commit `cbb6bda` 與版本／報告提交 `43b5d71` 已 review；`custom/main` fast-forward 至 `43b5d71`，最終 rehearsal 通過。本地 `main` 等於官方 `bac5bbb`，待發布與 CI。
+- `main` 與 `custom/main` 已無 force push 成功；`Custom compatibility` [run 38067079985](https://github.com/Charlie-0926/locwarp/actions/runs/38067079985) 的 backend／frontend jobs 均成功。發布結果已補進同步報告。
 
 ## 2026-09-07：LocWarp 上游同步啟動
 
