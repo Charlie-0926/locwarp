@@ -348,3 +348,9 @@
 - 完整驗證已通過：extension boundaries、Pyright、Electron syntax、TypeScript、Vite build、Mypy、backend pytest 20 passed、2-opt 5 passed、diff/衝突標記掃描。新增花農推送失敗後於同站重試的回歸測試；詳細整合記錄見 `doc/upstream-sync/2026-09-30-v0.2.199.md`。
 - 同步 merge commit `6d8edc8` 已 fast-forward 至 `custom/main`；本地 `main` 等於官方 head `964d8aa`，最終 rehearsal 通過。接著發布並監看 CI。
 - `main` 與 `custom/main` 已無 force push 成功；`Custom compatibility` [run 36716926968](https://github.com/Charlie-0926/locwarp/actions/runs/36716926968) 的 backend／frontend jobs 均成功。詳細推送狀態已補進同步報告。
+
+- 正式同步位於 sync/upstream-v0.2.204；唯一衝突是 lockfile 的兩個版本欄位，已採官方 0.2.204 並執行 npm version，三個本機版本欄位均一致。已 review 自動合併的搜尋 API、AppState、App 與 API adapter，客製 extension 接線保留，未移除 patch。正在安裝官方新版依賴與執行完整驗證。
+- 後端 20 tests、2-opt 5 tests、extension boundaries、Pyright 已通過；Mypy 發現官方新增 ArcGIS params 推導為 dict[str, object]，已補與既有 provider 相同的明確 query-param 型別，待重跑確認。
+- Mypy 修正後 62 files 通過，pip check 與 backend import smoke 通過；scripts/verify.ps1 全部通過（Pyright、Electron syntax、TypeScript、Vite build）。同步報告已建立於 doc/upstream-sync/2026-11-02-v0.2.204.md，等待 npm ci 結束後完成提交與最終 rehearsal。
+- 使用者已授權推送 main／custom/main 並確認 CI。npm ci 停在稽核階段，已停止本次安裝程序，改用相同 lockfile 的 npm ci --no-audit --no-fund --foreground-scripts 重試。
+- 前端乾淨安裝成功（372 packages），重新執行完整 verify 通過；diff、staged diff 與 conflict marker scan 通過，私人座標仍被忽略。已完成整合 review，接著提交並 fast-forward custom/main。
