@@ -354,3 +354,4 @@
 - Mypy 修正後 62 files 通過，pip check 與 backend import smoke 通過；scripts/verify.ps1 全部通過（Pyright、Electron syntax、TypeScript、Vite build）。同步報告已建立於 doc/upstream-sync/2026-11-02-v0.2.204.md，等待 npm ci 結束後完成提交與最終 rehearsal。
 - 使用者已授權推送 main／custom/main 並確認 CI。npm ci 停在稽核階段，已停止本次安裝程序，改用相同 lockfile 的 npm ci --no-audit --no-fund --foreground-scripts 重試。
 - 前端乾淨安裝成功（372 packages），重新執行完整 verify 通過；diff、staged diff 與 conflict marker scan 通過，私人座標仍被忽略。已完成整合 review，接著提交並 fast-forward custom/main。
+- 整合提交 bd2cf13 已 fast-forward 至 custom/main；最終 upstream rehearsal 通過，main 精確等於官方 26dd5a5。依使用者授權開始推送與追蹤 CI。
